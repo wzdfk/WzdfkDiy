@@ -104,6 +104,49 @@ def raw_chat(system: str, user: str, history: list[dict] | None = None) -> str:
     return r.json()["choices"][0]["message"]["content"]
 
 
+async def raw_chat_stream(system: str, user: str, history: list[dict] | None = None):
+    """OpenAI 兼容流式调用； yields ('reasoning'|'content', text)。
+
+    若供应商提供 reasoning_content / reasoning 字段，会单独作为 reasoning 流输出；
+    没有则不伪造模型思考，只输出 content 流。
+    """
+    base, key, model = _creds()
+    if not key:
+        raise RuntimeError("未配置 API Key")
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for m in (history or []):
+        if m.get("role") in ("user", "bot") and m.get("text"):
+            messages.append({"role": "user" if m["role"] == "user" else "assistant",
+                             "content": m["text"]})
+    messages.append({"role": "user", "content": user})
+
+    payload = {"model": model, "messages": messages, "temperature": 0.4, "stream": True}
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with client.stream("POST", base, headers=headers, json=payload) as r:
+            r.raise_for_status()
+            async for line in r.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                except Exception:
+                    continue
+                try:
+                    delta = obj["choices"][0]["delta"]
+                except Exception:
+                    continue
+                reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                content = delta.get("content")
+                if reasoning:
+                    yield "reasoning", reasoning
+                if content:
+                    yield "content", content
+
+
 def test_connection() -> dict[str, Any]:
     """设置面板「测试连接」。"""
     t0 = time.time()
@@ -210,18 +253,43 @@ def _derive_scale(s500: str) -> dict[str, str]:
     }
 
 
+# 常见中文色彩词 → hex；模型偶尔不按 #RRGGBB 输出时兜底
+_COLOR_WORDS: list[tuple[str, str]] = [
+    ("珊瑚红", "#ff7f6a"), ("钢青", "#5b7c89"), ("金属蓝", "#5b7c89"),
+    ("工业灰", "#3a4145"), ("深灰", "#2f3437"), ("炭灰", "#2f3437"),
+    ("青灰", "#6b7f86"), ("浅灰", "#d9dde0"), ("浅色", "#eef1f4"),
+    ("白", "#ffffff"), ("黑", "#111111"),
+    ("红", "#d0453b"), ("蓝", "#4a92bd"), ("绿", "#3f8f6b"),
+    ("黄", "#d9a441"), ("紫", "#7a5ea8"), ("橙", "#e08a3c"),
+]
+
+
+def _normalize_value(path: str, value: Any) -> Any:
+    if not isinstance(value, str) or _HEX.match(value.strip()):
+        return value
+    for word, hex_value in _COLOR_WORDS:
+        if word in value:
+            return hex_value
+    return value
+
+
 def _apply_changes(d: dict, changes: list[dict]) -> list[dict]:
     """逐条校验并应用；每条独立试装，防一条坏改毁整包。返回真正生效的 diff。"""
     applied: list[dict] = []
     for ch in changes:
-        path, value, reason = ch.get("path", ""), ch.get("value"), ch.get("reason", "")
+        path = ch.get("path", "")
+        raw_value = ch.get("value")
+        reason = ch.get("reason", "")
+        value = _normalize_value(path, raw_value)
         if not path or not _valid_change(path, value):
             continue
+        notes = ["（色彩词已转 hex）"] if value != raw_value else []
 
         # 主色变更：自动推导整套色阶（不指望 LLM 算色阶）
         expand: list[tuple[str, Any]] = [(path, value)]
         if path == "color.accent.s500" and isinstance(value, str) and _HEX.match(value):
             expand = [(f"color.accent.{k}", v) for k, v in _derive_scale(value).items()]
+            notes.append("（色阶自动推导）")
 
         for p, v in expand:
             probe = deepcopy(d)
@@ -246,7 +314,7 @@ def _apply_changes(d: dict, changes: list[dict]) -> list[dict]:
             cur[segs[-1]] = v
             applied.append({
                 "path": p, "from": old, "to": v,
-                "reason": reason or "AI 调整" + ("（色阶自动推导）" if len(expand) > 1 else ""),
+                "reason": (reason or "AI 调整") + "".join(dict.fromkeys(notes)),
             })
     return applied
 
@@ -338,10 +406,105 @@ def chat_diff(
         applied = _apply_changes(d, changes)
         if applied:
             return StyleTokens.model_validate(d), applied, reply or f"已按「{message.strip()}」调整 {len(applied)} 项。"
-        # LLM 没给出可用修改 → 词典兜底
-        return dict_style.apply_message(tokens, message)
+        if changes:
+            return tokens, [], "本轮模型建议未通过字段校验，样式保持不变。可以说得更具体，例如「主色改成 #5b7c89」「边框细一点」。"
+        return tokens, [], reply or "本轮没有具体改动，样式保持不变。"
     except Exception:
         return dict_style.apply_message(tokens, message)
+
+
+async def chat_diff_stream(
+    tokens: StyleTokens,
+    message: str,
+    history: list[dict] | None = None,
+):
+    """SSE 版对话调整：系统思考 → 模型输出 → 整理校验 → 最终方案。
+
+    reasoning 只在供应商显式返回时透传；系统思考是编排步骤，不伪装成模型内部推理。
+    """
+    yield {"type": "stage", "stage": "thinking", "label": "思考中"}
+    yield {
+        "type": "thought", "stage": "thinking",
+        "thought": f"读取当前风格「{tokens.meta.name}」，用户要求：{message.strip()}",
+    }
+    yield {"type": "thought", "stage": "thinking", "thought": "正在确定需要调整的维度与约束…"}
+
+    if not enabled():
+        yield {"type": "thought", "stage": "thinking", "thought": "未配置模型，改用本地风格词典。"}
+        nt, diff, reply = dict_style.apply_message(tokens, message)
+        yield {"type": "stage", "stage": "done", "label": "完成"}
+        yield {"type": "done", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
+        return
+
+    buf = ""
+    reasoning = ""
+    changes: list[dict] = []
+    reply = ""
+    try:
+        yield {"type": "stage", "stage": "generating", "label": "模型输出"}
+        user = f"当前风格 tokens：\n{tokens.model_dump_json(indent=2)}\n\n用户消息：{message}"
+        async for kind, text in raw_chat_stream(_CHAT_SYSTEM, user, history=history):
+            if kind == "reasoning":
+                reasoning += text
+                yield {"type": "reasoning", "delta": text}
+            else:
+                buf += text
+                yield {"type": "delta", "delta": text}
+
+        yield {"type": "stage", "stage": "organizing", "label": "整理中"}
+        yield {
+            "type": "thought", "stage": "organizing",
+            "thought": f"收到模型输出 {len(buf)} 字符，正在提取 changes 与 reply。",
+        }
+        if reasoning:
+            yield {
+                "type": "thought", "stage": "organizing",
+                "thought": f"供应商额外返回 {len(reasoning)} 字符推理摘要，已单独展示。",
+            }
+
+        data = _extract_json(buf)
+        changes = data.get("changes", [])
+        reply = str(data.get("reply") or "").strip()
+        yield {"type": "thought", "stage": "organizing", "thought": f"解析到 {len(changes)} 条候选修改。"}
+
+        yield {"type": "stage", "stage": "validating", "label": "校验中"}
+        for ch in changes:
+            path = str(ch.get("path", ""))
+            raw = ch.get("value")
+            value = _normalize_value(path, raw)
+            ok = _valid_change(path, value)
+            note = "（色彩词已转 hex）" if value != raw else ""
+            yield {
+                "type": "thought", "stage": "validating",
+                "thought": f"{path or '(空路径)'} = {value} → {'通过' if ok else '丢弃：路径或值不合法'}{note}",
+            }
+
+        yield {"type": "stage", "stage": "applying", "label": "生成方案"}
+        d = tokens.model_dump()
+        applied = _apply_changes(d, changes)
+        yield {"type": "thought", "stage": "applying", "thought": f"实际生效 {len(applied)} 项修改。"}
+
+        if not applied:
+            nt = tokens
+            diff = []
+            if changes:
+                yield {"type": "thought", "stage": "applying", "thought": "模型改动全部未通过字段校验，保留当前风格。"}
+                reply = reply or "本轮模型建议未通过字段校验，样式保持不变。可以说得更具体，例如「主色改成 #5b7c89」「边框细一点」。"
+            else:
+                yield {"type": "thought", "stage": "applying", "thought": "模型未给出具体改动，保留当前风格。"}
+                reply = reply or "本轮没有具体改动，样式保持不变。"
+        else:
+            nt = StyleTokens.model_validate(d)
+            diff = applied
+            reply = reply or f"已按「{message.strip()}」调整 {len(applied)} 项。"
+
+        yield {"type": "stage", "stage": "done", "label": "完成"}
+        yield {"type": "done", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
+    except Exception as e:
+        yield {"type": "thought", "stage": "organizing", "thought": f"模型输出不可用（{e.__class__.__name__}），改用本地风格词典。"}
+        nt, diff, reply = dict_style.apply_message(tokens, message)
+        yield {"type": "stage", "stage": "done", "label": "完成"}
+        yield {"type": "done", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
 
 
 # ---------- V0 stub 兜底（原关键词解析，保留） ----------

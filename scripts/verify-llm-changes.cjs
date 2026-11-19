@@ -28,6 +28,17 @@ const checks = [
     ok: ['style.json', 'base.css', 'style.css', 'STYLE_PROMPT.md']
       .every((f) => route.includes(`zf.writestr("${f}"`)),
   },
+  {
+    name: '中文色彩词会归一化为 hex 再校验',
+    ok: /def _normalize_value\(/.test(llm)
+      && /_COLOR_WORDS/.test(llm)
+      && /value = _normalize_value\(path, raw_value\)/.test(llm),
+  },
+  {
+    name: '模型有回复但改动无效时不再落到 V0 占位文案',
+    ok: /模型改动全部未通过字段校验，保留当前风格/.test(llm)
+      && /本轮模型建议未通过字段校验，样式保持不变/.test(llm),
+  },
 ]
 
 let runtimeOk = false
@@ -47,6 +58,17 @@ const py = [
   't = type(fold_default()).model_validate(d)',
   "assert t.motion.hover == 'tilt'",
   "assert t.motion.easing_pop == 'cubic-bezier(.2, 1.8, .4, 1)'",
+  'd2 = fold_default().model_dump()',
+  'applied2 = llm._apply_changes(d2, [',
+  "  {'path': 'color.paper', 'value': '深灰底色', 'reason': 'x'},",
+  "  {'path': 'color.accent.s500', 'value': '钢青金属主色', 'reason': 'y'},",
+  "  {'path': 'color.ink.ink900', 'value': '浅色', 'reason': 'z'},",
+  '])',
+  'assert len(applied2) == 10',
+  't2 = type(fold_default()).model_validate(d2)',
+  "assert t2.color.paper == '#2f3437'",
+  "assert t2.color.accent.s500 == '#5b7c89'",
+  "assert t2.color.ink.ink900 == '#eef1f4'",
   "print('RUNTIME_OK')",
 ].join('\n')
 const tmpPy = path.join(root, 'backend', '_verify_llm_changes_tmp.py')

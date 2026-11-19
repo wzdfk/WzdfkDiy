@@ -27,6 +27,21 @@ watch(() => store.messages.length, async () => {
 
 const SUGGESTIONS = ['再柔和一点', '硬朗一些', '圆润一点', '极简一些', '厚重一些', '俏皮一点', '从容一点']
 
+const STAGE_LABELS: Record<string, string> = {
+  thinking: '系统思考',
+  generating: '模型输出',
+  organizing: '整理中',
+  validating: '字段校验',
+  applying: '生成方案',
+  done: '完成',
+}
+
+function stageLabel(ev: { type: string; stage?: string; label?: string }) {
+  if (ev.type === 'reasoning') return '模型推理'
+  if (ev.type === 'delta') return '模型输出'
+  return ev.label ?? STAGE_LABELS[ev.stage ?? ''] ?? '过程'
+}
+
 async function suggest(text: string) {
   input.value = ''
   if (store.messages.length === 0) {
@@ -53,7 +68,21 @@ async function suggest(text: string) {
 
       <template v-for="(msg, i) in store.messages" :key="i">
         <div class="bubble" :class="msg.role">
-          <div class="bubble-text">{{ msg.text }}</div>
+          <div class="bubble-text">{{ msg.text || (msg.streaming ? '生成中…' : '') }}</div>
+          <details v-if="msg.trace?.length || msg.raw || msg.reasoning" class="trace">
+            <summary>查看思考 / 整理过程</summary>
+            <div class="trace-body">
+              <div v-for="(t, idx) in msg.trace" :key="idx" class="trace-line" :class="t.stage || t.type">
+                <span class="trace-tag">{{ stageLabel(t) }}</span>
+                <span>{{ t.thought || t.label || '' }}</span>
+              </div>
+              <div v-if="msg.reasoning" class="trace-reasoning">
+                <span class="trace-tag">模型推理</span>
+                <span>{{ msg.reasoning }}</span>
+              </div>
+              <pre v-if="msg.raw" class="trace-raw">{{ msg.raw }}</pre>
+            </div>
+          </details>
           <div v-if="msg.diff?.length" class="diff-card">
             <div class="fd-label" style="margin-bottom:6px;">本轮修改（{{ msg.diff.length }} 项）</div>
             <div v-for="d in msg.diff" :key="d.path + d.to" class="diff-item">
@@ -65,7 +94,7 @@ async function suggest(text: string) {
         </div>
       </template>
 
-      <div v-if="store.busy" class="bubble bot typing">思考中…</div>
+      <div v-if="store.busy && !store.messages.some(m => m.streaming)" class="bubble bot typing">思考中…</div>
     </div>
 
     <div class="suggest-row">
@@ -135,6 +164,44 @@ async function suggest(text: string) {
   border-color: var(--fd-accent-300);
 }
 .bubble.typing { color: var(--fd-ink-400); }
+
+.trace {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--fd-ink-600);
+}
+.trace summary { cursor: pointer; color: var(--fd-accent-700); }
+.trace-body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fd-accent-50);
+  max-height: 180px;
+  overflow-y: auto;
+}
+.trace-line, .trace-reasoning {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.trace-tag {
+  flex: none;
+  color: var(--fd-accent-700);
+  font-weight: 600;
+}
+.trace-reasoning .trace-tag { color: var(--fd-ink-400); }
+.trace-raw {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px dashed var(--fd-accent-200);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 100px;
+  overflow-y: auto;
+}
 
 .diff-card {
   margin-top: 10px;

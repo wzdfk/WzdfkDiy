@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { StyleTokens } from '../types/style'
+import type { ChatStreamEvent, StyleTokens } from '../types/style'
 
 const http = axios.create({ baseURL: '/api', timeout: 90000 })  // LLM 调用放宽到 90s
 
@@ -25,6 +25,47 @@ export const chat = (
   http.post<{ tokens: StyleTokens; diff: { path: string; from: string | number; to: string | number; reason: string }[]; reply: string }>(
     '/style/chat', { message, history },
   ).then(r => r.data)
+
+/** 流式对话：解析 SSE 事件并逐条回调 */
+export async function chatStream(
+  message: string,
+  history: { role: string; text: string }[],
+  onEvent: (event: ChatStreamEvent) => void,
+) {
+  const res = await fetch('/api/style/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }),
+  })
+  if (!res.ok || !res.body) throw new Error(`SSE 失败: ${res.status}`)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const emit = (chunk: string) => {
+    const data = chunk.split('\n')
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trim())
+      .join('')
+    if (!data) return
+    try {
+      onEvent(JSON.parse(data) as ChatStreamEvent)
+    } catch {
+      onEvent({ type: 'error', message: '流式事件解析失败' })
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const blocks = buffer.split('\n\n')
+    buffer = blocks.pop() ?? ''
+    for (const block of blocks) emit(block)
+  }
+  if (buffer.trim()) emit(buffer)
+}
 
 /** 撤销最近一次改动 → { ok, tokens, error? } */
 export const undo = () =>

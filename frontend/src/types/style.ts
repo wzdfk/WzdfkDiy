@@ -68,8 +68,24 @@ export interface DiffItem {
   reason: string
 }
 
+export interface ChatStreamEvent {
+  type: 'stage' | 'thought' | 'reasoning' | 'delta' | 'done' | 'error' | 'message'
+  stage?: string
+  label?: string
+  thought?: string
+  delta?: string
+  message?: string
+  tokens?: StyleTokens
+  diff?: DiffItem[]
+  reply?: string
+}
+
 export interface ChatMessage {
   role: 'user' | 'bot'
   text: string
   diff?: DiffItem[]
+  streaming?: boolean
+  trace?: ChatStreamEvent[]
+  raw?: string
+  reasoning?: string
 }

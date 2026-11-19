@@ -79,22 +79,49 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function send(message: string) {
-    if (!message.trim()) return
+    if (!message.trim() || busy.value) return
+    const baselineCss = css.value
+    const hist = history()
     messages.value.push({ role: 'user', text: message })
     pendingDiff.value = null
+    const botIndex = messages.value.push({
+      role: 'bot', text: '', streaming: true, trace: [],
+    }) - 1
     busy.value = true
     try {
-      const baselineCss = css.value
-      const hist = history()
-      const res = await queueWrite(() => api.chat(message, hist))
-      tokens.value = res.tokens
-      const diff: DiffItem[] = res.diff
-      messages.value.push({ role: 'bot', text: res.reply, diff: diff.length ? diff : undefined })
-      if (diff.length) pendingDiff.value = { baselineCss, diff, reply: res.reply }
+      await api.chatStream(message, hist, (ev) => {
+        const msg = messages.value[botIndex]
+        if (!msg) return
+        if (ev.type === 'delta') {
+          msg.raw = (msg.raw ?? '') + (ev.delta ?? '')
+        } else if (ev.type === 'reasoning') {
+          msg.reasoning = (msg.reasoning ?? '') + (ev.delta ?? '')
+        } else if (ev.type === 'done') {
+          msg.text = ev.reply ?? ''
+          msg.diff = ev.diff?.length ? ev.diff : undefined
+          msg.streaming = false
+          if (ev.tokens) tokens.value = ev.tokens
+          if (ev.diff?.length) {
+            pendingDiff.value = { baselineCss, diff: ev.diff, reply: ev.reply ?? '' }
+          }
+        } else if (ev.type === 'error') {
+          msg.text = `生成失败：${ev.message ?? '未知错误'}`
+          msg.streaming = false
+        } else {
+          msg.trace = msg.trace ?? []
+          msg.trace.push(ev)
+        }
+      })
       await refreshCss()
     } catch {
-      messages.value.push({ role: 'bot', text: '对话失败，检查后端服务是否在 8300 端口运行。' })
+      const msg = messages.value[botIndex]
+      if (msg) {
+        msg.text = '对话失败，检查后端服务是否在 8300 端口运行。'
+        msg.streaming = false
+      }
     } finally {
+      const msg = messages.value[botIndex]
+      if (msg?.streaming) msg.streaming = false
       busy.value = false
     }
   }

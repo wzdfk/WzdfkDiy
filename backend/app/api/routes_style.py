@@ -25,6 +25,10 @@ def _brief(text: str, limit: int = 60) -> str:
     return value if len(value) <= limit else value[:limit] + "…"
 
 
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
 # ---------- 会话内风格档案（V0 内存态；持久化到 MySQL 在 M4） ----------
 _session: dict[str, StyleTokens] = {"default": fold_default()}
 
@@ -78,6 +82,36 @@ def chat(payload: dict):
     logger.info("对话完成 diff=%d 项", len(diff))
     _session["default"] = tokens
     return {"tokens": tokens, "diff": diff, "reply": reply}
+
+
+@router.post("/chat/stream")
+async def chat_stream(payload: dict):
+    """流式对话：SSE 输出系统思考/模型输出/整理校验/最终方案。"""
+    message = payload.get("message", "")
+    history = payload.get("history") or []
+    logger.info("流式对话 message=%r", _brief(message))
+    current = _session["default"]
+
+    async def generate():
+        final = None
+        try:
+            async for event in llm.chat_diff_stream(current, message, history=history):
+                if event.get("type") == "done":
+                    final = event
+                yield _sse(event.get("type", "message"), event)
+            if final:
+                _push_snapshot()
+                _session["default"] = StyleTokens.model_validate(final["tokens"])
+                logger.info("流式对话完成 diff=%d 项", len(final.get("diff", [])))
+        except Exception as e:
+            logger.exception("流式对话失败")
+            yield _sse("error", {"type": "error", "message": f"{e.__class__.__name__}: {e}"})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/undo")
