@@ -40,6 +40,7 @@
 
   /* —— 线与投影（@token line.* / elevation.* · {{ elev_note }}） —— */
   --{{ p }}-border: {{ t.line.border_width }}px {{ t.line.border_style }} var(--{{ p }}-ink-900);  /* @token line.border_width + border_style */
+  --{{ p }}-border-style: {{ t.line.border_style }};  /* @token line.border_style（分隔线复用） */
   --{{ p }}-e1: {{ levels.e1 }};  /* @token elevation.levels.e1 */
   --{{ p }}-e2: {{ levels.e2 }};  /* @token elevation.levels.e2 */
   --{{ p }}-e3: {{ levels.e3 }};  /* @token elevation.levels.e3 */

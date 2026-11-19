@@ -98,6 +98,7 @@ export const useStyleStore = defineStore('style', () => {
           msg.reasoning = (msg.reasoning ?? '') + (ev.delta ?? '')
         } else if (ev.type === 'done') {
           msg.text = ev.reply ?? ''
+          msg.mode = ev.mode
           msg.diff = ev.diff?.length ? ev.diff : undefined
           msg.streaming = false
           if (ev.tokens) tokens.value = ev.tokens

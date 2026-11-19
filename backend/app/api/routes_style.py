@@ -13,7 +13,6 @@ from fastapi.responses import StreamingResponse
 from ..core import db as archive_db
 from ..core import llm
 from ..core.css_gen import render_base_css, render_combined_css, render_style_css
-from ..core.prompt_gen import render_style_prompt
 from ..core.tokens import StyleTokens, blank_default, fold_default
 
 router = APIRouter(prefix="/api/style", tags=["style"])
@@ -164,7 +163,7 @@ def export_style(payload: dict | None = None):
         zf.writestr("style.json", tokens.model_dump_json(indent=2))
         zf.writestr("base.css", render_base_css(tokens))
         zf.writestr("style.css", render_style_css(tokens))
-        zf.writestr("STYLE_PROMPT.md", render_style_prompt(tokens))
+        zf.writestr("STYLE_PROMPT.md", llm.reverse_prompt(tokens))
     buf.seek(0)
 
     return StreamingResponse(

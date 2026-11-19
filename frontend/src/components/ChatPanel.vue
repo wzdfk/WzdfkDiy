@@ -68,7 +68,10 @@ async function suggest(text: string) {
 
       <template v-for="(msg, i) in store.messages" :key="i">
         <div class="bubble" :class="msg.role">
-          <div class="bubble-text">{{ msg.text || (msg.streaming ? '生成中…' : '') }}</div>
+          <div class="bubble-text">
+            <span v-if="msg.mode === 'rewrite'" class="mode-tag">重写基底</span>
+            {{ msg.text || (msg.streaming ? '生成中…' : '') }}
+          </div>
           <details v-if="msg.trace?.length || msg.raw || msg.reasoning" class="trace">
             <summary>查看思考 / 整理过程</summary>
             <div class="trace-body">
@@ -164,6 +167,15 @@ async function suggest(text: string) {
   border-color: var(--fd-accent-300);
 }
 .bubble.typing { color: var(--fd-ink-400); }
+.mode-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--fd-accent-100);
+  color: var(--fd-accent-700);
+  font-size: 11px;
+}
 
 .trace {
   margin-top: 8px;

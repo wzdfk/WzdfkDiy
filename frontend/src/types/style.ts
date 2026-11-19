@@ -75,6 +75,7 @@ export interface ChatStreamEvent {
   thought?: string
   delta?: string
   message?: string
+  mode?: 'rewrite' | 'adjust'
   tokens?: StyleTokens
   diff?: DiffItem[]
   reply?: string
@@ -85,6 +86,7 @@ export interface ChatMessage {
   text: string
   diff?: DiffItem[]
   streaming?: boolean
+  mode?: 'rewrite' | 'adjust'
   trace?: ChatStreamEvent[]
   raw?: string
   reasoning?: string

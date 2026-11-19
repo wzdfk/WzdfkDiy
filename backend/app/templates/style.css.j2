@@ -82,7 +82,7 @@
   /* @token spacing（sp-4/sp-3）+ line.border_style */
   display: flex; justify-content: space-between; align-items: center;
   margin-top: var(--{{ p }}-sp-4); padding-top: var(--{{ p }}-sp-3);
-  border-top: 1.5px dashed var(--{{ p }}-accent-200);
+  border-top: 1.5px var(--{{ p }}-border-style) var(--{{ p }}-accent-200);
   font-size: 12px; color: var(--{{ p }}-ink-400);
 }
 
@@ -179,10 +179,10 @@
   background: var(--{{ p }}-accent-100); color: var(--{{ p }}-accent-700);
   box-shadow: {{ comp.badge.shadow }};
 }
-.{{ p }}-badge-ok     { /* @token color.status.ok */ background: #e3f3e9; color: #2e7d50; border-color: var(--{{ p }}-ok); }
-.{{ p }}-badge-warn   { /* @token color.status.warn */ background: #faf0dd; color: #9c6b1d; border-color: var(--{{ p }}-warn); }
-.{{ p }}-badge-danger { /* @token color.status.danger */ background: #fbe6e6; color: #a63d3d; border-color: var(--{{ p }}-danger); }
-.{{ p }}-badge-info   { /* @token color.status.info */ background: #eeebf9; color: #5c4fa3; border-color: var(--{{ p }}-info); }
+.{{ p }}-badge-ok     { /* @token color.status.ok */ background: color-mix(in srgb, var(--{{ p }}-ok) 14%, var(--{{ p }}-surface)); color: var(--{{ p }}-ok); border-color: var(--{{ p }}-ok); }
+.{{ p }}-badge-warn   { /* @token color.status.warn */ background: color-mix(in srgb, var(--{{ p }}-warn) 14%, var(--{{ p }}-surface)); color: var(--{{ p }}-warn); border-color: var(--{{ p }}-warn); }
+.{{ p }}-badge-danger { /* @token color.status.danger */ background: color-mix(in srgb, var(--{{ p }}-danger) 14%, var(--{{ p }}-surface)); color: var(--{{ p }}-danger); border-color: var(--{{ p }}-danger); }
+.{{ p }}-badge-info   { /* @token color.status.info */ background: color-mix(in srgb, var(--{{ p }}-info) 14%, var(--{{ p }}-surface)); color: var(--{{ p }}-info); border-color: var(--{{ p }}-info); }
 
 /* ============ Toast 轻通知 ============ */
 .{{ p }}-toast {
@@ -245,6 +245,10 @@
 .{{ p }}-spring { /* @token motion.duration / easing_pop */ transition: transform var(--{{ p }}-dur) var(--{{ p }}-ease-pop); }
 {% if t.motion.hover == "tilt" -%}
 .{{ p }}-spring:hover { transform: rotate(-2deg) scale(1.05); }
+{% elif t.motion.hover == "press" -%}
+.{{ p }}-spring:hover { transform: scale(.97); }
+{% elif t.motion.hover == "lift" -%}
+.{{ p }}-spring:hover { transform: translate(-2px, -2px); }
 {% else -%}
-.{{ p }}-spring:hover { transform: rotate(-1deg) scale(1.04); }
+.{{ p }}-spring:hover { transform: none; }
 {% endif %}

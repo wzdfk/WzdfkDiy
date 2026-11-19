@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 
 from . import dict_style
-from .tokens import ControlBox, StyleTokens, fold_default
+from .tokens import ControlBox, StyleTokens, blank_default, fold_default
 
 _SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "llm_settings.json"
 
@@ -147,6 +147,25 @@ async def raw_chat_stream(system: str, user: str, history: list[dict] | None = N
                     yield "content", content
 
 
+_REVERSE_SYSTEM = """你是 UI 风格复原提示词生成器。读取 StyleTokens JSON，输出一段中文提示词，让另一个设计助手据此重建同款风格。
+只输出提示词正文，不要 JSON、不要代码围栏、不要解释。
+必须覆盖：色彩（主色/底色/面板/文字）、圆角、边框与焦点、投影、字体、动效、组件密度。
+不要提折角，除非 tokens 的 shape.strategy 明确是 fold。"""
+
+
+def reverse_prompt(tokens: StyleTokens) -> str:
+    """tokens → 可复刻提示词；LLM 不可用时退回本地模板。"""
+    from .prompt_gen import render_style_prompt
+
+    if not enabled():
+        return render_style_prompt(tokens)
+    try:
+        text = raw_chat(_REVERSE_SYSTEM, tokens.model_dump_json(indent=2)).strip()
+        return text or render_style_prompt(tokens)
+    except Exception:
+        return render_style_prompt(tokens)
+
+
 def test_connection() -> dict[str, Any]:
     """设置面板「测试连接」。"""
     t0 = time.time()
@@ -186,8 +205,12 @@ _ENUMS: dict[str, set[str]] = {
     "motion.hover": {"lift", "press", "tilt", "none"},
     "motion.active": {"press", "none"},
 }
-_NUMBERS = {"line.border_width", "motion.duration", "motion.duration_slow"}
+_NUMBERS = {
+    "line.border_width", "motion.duration", "motion.duration_slow", "spacing.unit",
+}
 _EASINGS = {"motion.easing_pop", "motion.easing_out"}
+_ELEVATION_LEVELS = {"elevation.levels.e1", "elevation.levels.e2", "elevation.levels.e3"}
+_CSS_SAFE_RE = re.compile(r"^[^{};]+$")
 _EASING_RE = re.compile(
     r"^(?:linear|ease(?:-in|-out|-in-out)?"
     r"|cubic-bezier\(\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*\)"
@@ -208,8 +231,15 @@ def _valid_change(path: str, value: Any) -> bool:
         return isinstance(value, (int, float)) and not isinstance(value, bool)
     if path in _EASINGS:
         return isinstance(value, str) and bool(_EASING_RE.fullmatch(value.strip()))
-    if path in ("color.paper", "color.surface", "color.shadow"):
+    if path in ("color.paper", "color.surface", "color.shadow", "elevation.shadow_color"):
         return isinstance(value, str) and (_HEX.match(value) is not None or value is None)
+    if path in _ELEVATION_LEVELS:
+        return isinstance(value, str) and bool(_CSS_SAFE_RE.fullmatch(value.strip())) and bool(value.strip())
+    if path == "spacing.steps":
+        return (
+            isinstance(value, list) and len(value) >= 2
+            and all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in value)
+        )
     if path.startswith("color.accent.s") and path.split(".")[-1] in {f"s{i}" for i in (50, 100, 200, 300, 400, 500, 600, 700)}:
         return isinstance(value, str) and _HEX.match(value) is not None
     if path.startswith("color.ink."):
@@ -319,6 +349,57 @@ def _apply_changes(d: dict, changes: list[dict]) -> list[dict]:
     return applied
 
 
+def _tokens_from_rewrite_payload(data: dict) -> StyleTokens:
+    """把 rewrite 模式的 tokens 片段合并到空模板并校验。"""
+    payload = data.get("tokens") if isinstance(data.get("tokens"), dict) else data
+    base = blank_default()
+    merged = _deep_merge(base.model_dump(), payload)
+    merged["schemaVersion"] = "1.0"
+    merged["prefix"] = base.prefix
+    s500 = payload.get("color", {}).get("accent", {}).get("s500")
+    if isinstance(s500, str) and _HEX.match(s500):
+        merged["color"]["accent"] = _derive_scale(s500)
+    return StyleTokens.model_validate(merged)
+
+
+def _leaf_paths(obj: dict, prefix: str = "") -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in obj.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            out.update(_leaf_paths(value, path))
+        else:
+            out[path] = value
+    return out
+
+
+def _diff_tokens(before: StyleTokens, after: StyleTokens) -> list[dict]:
+    """重写模式：对比全部叶子字段，生成可展示 diff。"""
+    b = _leaf_paths(before.model_dump())
+    a = _leaf_paths(after.model_dump())
+    skip = {"schemaVersion", "prefix", "meta.created"}
+    diff: list[dict] = []
+    for path in sorted(set(b) | set(a)):
+        if path in skip:
+            continue
+        if b.get(path) != a.get(path):
+            diff.append({
+                "path": path,
+                "from": b.get(path),
+                "to": a.get(path),
+                "reason": "整体风格重写",
+            })
+    return diff
+
+
+def _decide_mode(message: str, data: dict) -> str:
+    """优先用 LLM 给出的 mode；缺失时做保守兜底。"""
+    mode = str(data.get("mode") or "").strip().lower()
+    if mode in ("rewrite", "adjust"):
+        return mode
+    return "rewrite" if re.search(r"做|改成|换成|换个|风格|工业|极简|赛博|复古|未来|科技|拟物", message) else "adjust"
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     """递归合并：override 有值就用，没有保留 base（容忍 LLM 只回改动区块）。"""
     out = deepcopy(base)
@@ -348,21 +429,29 @@ _PARSE_SYSTEM = """你是 UI 风格设计专家。用户会用一段话描述想
 4. 尊重用户明说的维度（圆角、投影、边框、动效、字体等），没提到的保持默认
 5. meta 区务必给出：{"meta": {"name": "风格名(≤12字)", "note": "一句话风格要点"}}"""
 
-_CHAT_SYSTEM = """你是 UI 风格调整助手。根据用户消息对当前风格 tokens 做**定向修改**。
+_CHAT_SYSTEM = """你是 UI 风格设计与调整助手。先自行判断用户意图，选择一种输出模式，并在 JSON 里给出 mode 字段。
 
-规则：
-1. 只输出 JSON：{"changes": [{"path": "字段路径", "value": 新值, "reason": "简短中文理由"}], "reply": "给用户的一句话回复"}
-2. 只改与消息相关的维度（通常 2-5 项），宁少勿滥——这是风格收敛的关键
-3. path 必须来自当前 tokens JSON 的真实字段
-4. 色值 #RRGGBB；数值单位按原字段惯例（px 字符串 / ms 数字）；改主色只改 color.accent.s500，系统自动推导整套色阶
-5. 用户说"再XX一点"表示在当前值基础上小步调整
-6. **reply 必须与 changes 一致**：reply 里提到的每一个效果，都必须在 changes 里有对应字段；没写进 changes 的效果不许写进 reply
-7. 动效映射（用户提到时必须输出对应 change）：
-   - 悬停放大/缩放/俏皮 → motion.hover = "tilt"（放大 1.05 并轻微旋转）；悬停缩小 → "press"
-   - 悬停上浮/层次 → "lift"；不要动效 → "none"
-   - 回弹更强/更软/更慢 → motion.easing_pop（必须是 CSS timing-function，如 cubic-bezier(.2, 1.8, .4, 1) / ease-out / linear）或 motion.duration（数字 ms，建议 120-500）
-   - 如果本轮没有输出任何 motion.* change，reply 中禁止出现「回弹」「缩放」「悬停动画」等动效词
-8. 大圆角用 shape.radius.lg/md/sm；不要只改颜色却在 reply 里声称改了圆角或动效"""
+只输出 JSON，两种模式二选一：
+
+A) 用户要做一个新风格、明确风格名、或整体大改：
+   {"mode":"rewrite","tokens":{完整或部分 StyleTokens},"reply":"给用户的一句话回复"}
+   - 基底是系统提供的「空模板」，不要继承折角/偏移投影/虚线焦点等旧签名
+   - 可以自由覆盖颜色、圆角、边框、投影、字体、动效、组件等几十个字段
+   - shape.radius 允许四角同值如 "8px"，也允许三圆一利旧写法
+   - 未写的字段由空模板补齐；color.accent.s500 给出后系统自动推导整套色阶
+
+B) 用户要在当前风格上微调：
+   {"mode":"adjust","changes":[{"path":"字段路径","value":新值,"reason":"简短中文理由"}],"reply":"给用户的一句话回复"}
+   - 修改数量不限，按用户意图决定，不要刻意压到 2-5 项
+   - path 必须来自当前 tokens JSON 的真实字段
+   - 改主色只改 color.accent.s500，系统自动推导整套色阶
+   - "再XX一点"才表示在当前值基础上小步调整
+
+通用规则：
+1. 色值为 #RRGGBB；数值单位按原字段惯例（px 字符串 / ms 数字）
+2. reply 必须只描述本次实际输出的字段；没写进 tokens/changes 的效果不许提
+3. 动效映射：悬停放大→motion.hover="tilt"；缩小→"press"；上浮→"lift"；关闭→"none"；回弹强度→motion.easing_pop（CSS timing-function）或 motion.duration（ms）
+4. 用户明确说「做一个…风格」「改成…」「工业风/极简风/赛博风」时，优先 rewrite；用户说「再柔和一点」「边框细一点」时，优先 adjust"""
 
 
 def parse_prompt(text: str) -> StyleTokens:
@@ -370,13 +459,13 @@ def parse_prompt(text: str) -> StyleTokens:
     if not enabled():
         return _stub_parse(text)
     try:
-        template = fold_default().model_dump_json(indent=2)
-        raw = raw_chat(_PARSE_SYSTEM, f"用户风格描述：\n{text}\n\n默认 tokens 基底：\n{template}")
+        template = blank_default().model_dump_json(indent=2)
+        raw = raw_chat(_PARSE_SYSTEM, f"用户风格描述：\n{text}\n\n空模板基底：\n{template}")
         data = _extract_json(raw)
         data.setdefault("schemaVersion", "1.0")
         data.setdefault("prefix", "fd")
-        # 深合并到基底：LLM 只回改动区块也能拼出完整 tokens
-        merged = _deep_merge(fold_default().model_dump(), data)
+        # 深合并到空模板：LLM 只回改动区块也能拼出完整 tokens
+        merged = _deep_merge(blank_default().model_dump(), data)
         merged["schemaVersion"] = "1.0"
         merged["prefix"] = "fd"
         # 主色统一走自动色阶推导，保证 50-700 同色系单调
@@ -397,11 +486,18 @@ def chat_diff(
     if not enabled():
         return dict_style.apply_message(tokens, message)
     try:
-        user = f"当前风格 tokens：\n{tokens.model_dump_json(indent=2)}\n\n用户消息：{message}"
+        user = (
+            f"当前风格 tokens：\n{tokens.model_dump_json(indent=2)}\n\n"
+            f"空模板基底（rewrite 用）：\n{blank_default().model_dump_json(indent=2)}\n\n"
+            f"用户消息：{message}"
+        )
         raw = raw_chat(_CHAT_SYSTEM, user, history=history)
         data = _extract_json(raw)
-        changes = data.get("changes", [])
         reply = str(data.get("reply") or "").strip()
+        if _decide_mode(message, data) == "rewrite":
+            nt = _tokens_from_rewrite_payload(data)
+            return nt, _diff_tokens(tokens, nt), reply or f"已重写为「{message.strip()}」对应的完整风格。"
+        changes = data.get("changes", [])
         d = tokens.model_dump()
         applied = _apply_changes(d, changes)
         if applied:
@@ -433,7 +529,7 @@ async def chat_diff_stream(
         yield {"type": "thought", "stage": "thinking", "thought": "未配置模型，改用本地风格词典。"}
         nt, diff, reply = dict_style.apply_message(tokens, message)
         yield {"type": "stage", "stage": "done", "label": "完成"}
-        yield {"type": "done", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
+        yield {"type": "done", "mode": "adjust", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
         return
 
     buf = ""
@@ -442,7 +538,11 @@ async def chat_diff_stream(
     reply = ""
     try:
         yield {"type": "stage", "stage": "generating", "label": "模型输出"}
-        user = f"当前风格 tokens：\n{tokens.model_dump_json(indent=2)}\n\n用户消息：{message}"
+        user = (
+            f"当前风格 tokens：\n{tokens.model_dump_json(indent=2)}\n\n"
+            f"空模板基底（rewrite 用）：\n{blank_default().model_dump_json(indent=2)}\n\n"
+            f"用户消息：{message}"
+        )
         async for kind, text in raw_chat_stream(_CHAT_SYSTEM, user, history=history):
             if kind == "reasoning":
                 reasoning += text
@@ -463,8 +563,28 @@ async def chat_diff_stream(
             }
 
         data = _extract_json(buf)
-        changes = data.get("changes", [])
+        mode = _decide_mode(message, data)
         reply = str(data.get("reply") or "").strip()
+        yield {
+            "type": "thought", "stage": "organizing",
+            "thought": f"LLM 判定模式：{'重写基底 rewrite' if mode == 'rewrite' else '增量调整 adjust'}",
+        }
+
+        if mode == "rewrite":
+            yield {"type": "stage", "stage": "applying", "label": "生成方案"}
+            yield {"type": "thought", "stage": "applying", "thought": "以空模板为基底重建完整 tokens。"}
+            nt = _tokens_from_rewrite_payload(data)
+            diff = _diff_tokens(tokens, nt)
+            yield {"type": "thought", "stage": "applying", "thought": f"重写完成，共 {len(diff)} 项差异。"}
+            yield {"type": "stage", "stage": "done", "label": "完成"}
+            yield {
+                "type": "done", "mode": "rewrite",
+                "tokens": nt.model_dump(mode="json"), "diff": diff,
+                "reply": reply or f"已重写为「{message.strip()}」对应的完整风格。",
+            }
+            return
+
+        changes = data.get("changes", [])
         yield {"type": "thought", "stage": "organizing", "thought": f"解析到 {len(changes)} 条候选修改。"}
 
         yield {"type": "stage", "stage": "validating", "label": "校验中"}
@@ -499,12 +619,12 @@ async def chat_diff_stream(
             reply = reply or f"已按「{message.strip()}」调整 {len(applied)} 项。"
 
         yield {"type": "stage", "stage": "done", "label": "完成"}
-        yield {"type": "done", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
+        yield {"type": "done", "mode": "adjust", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
     except Exception as e:
         yield {"type": "thought", "stage": "organizing", "thought": f"模型输出不可用（{e.__class__.__name__}），改用本地风格词典。"}
         nt, diff, reply = dict_style.apply_message(tokens, message)
         yield {"type": "stage", "stage": "done", "label": "完成"}
-        yield {"type": "done", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
+        yield {"type": "done", "mode": "adjust", "tokens": nt.model_dump(mode="json"), "diff": diff, "reply": reply}
 
 
 # ---------- V0 stub 兜底（原关键词解析，保留） ----------
