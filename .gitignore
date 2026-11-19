@@ -1,0 +1,90 @@
+# ===== 依赖目录 =====
+node_modules/
+**/node_modules/
+.venv/
+venv/
+env/
+
+# ===== 构建 / 生成产物 =====
+dist/
+**/dist/
+build/
+**/build/
+out/
+**/out/
+backend/output/
+*.egg-info/
+*.tsbuildinfo
+
+# ===== Python 缓存 =====
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== 前端 / 工具缓存 =====
+.vite/
+**/.vite/
+.npm/
+.cache/
+.playwright-cli/
+playwright-report/
+test-results/
+
+# ===== 环境变量 / 密钥（本地私有，不入库） =====
+.env
+**/.env
+.env.*
+**/.env.*
+!.env.example
+!**/.env.example
+*.key
+*.pem
+
+# ===== 日志 / 数据库 / 临时文件 =====
+logs/
+**/logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ===== 编辑器 / 系统文件 =====
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 导出包 =====
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ===== 根目录下生成的图片/素材（src/assets 内资源仍保留） =====
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.webp
+/*.ico
+供电监控仪表盘UI_assets/
+
+# ===== IDE 工具数据（仅忽略，勿删除目录） =====
+.codebuddy/
+
+# 保留：源码（.py/.ts/.vue/.css/.html/.j2）、配置（.json/.yaml）、
+#       文档（.md）、测试与验证脚本（.cjs）和前端静态资源仍正常入库。

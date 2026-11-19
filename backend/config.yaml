@@ -1,0 +1,22 @@
+# UIDiy 后端配置
+app:
+  name: UIDiy Agent
+  host: 127.0.0.1
+  port: 8300
+  cors_origins:
+    - http://localhost:5180
+    - http://127.0.0.1:5180
+
+database:
+  # 连接参数从 .env 读取（DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_DATABASE）
+  pool_size: 5
+  pool_recycle: 3600
+
+style:
+  class_prefix: fd        # 生成 CSS 的类名前缀
+  max_diff_items: 20      # 单轮对话最大 token 修改数
+
+llm:
+  provider: stub          # stub | openai | ...（V1 填充）
+  model: ""
+  api_key_env: LLM_API_KEY

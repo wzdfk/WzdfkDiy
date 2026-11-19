@@ -1,0 +1,74 @@
+/* ============================================================
+   {{ t.meta.name }} · v{{ t.meta.version }} — base.css
+   由 UIDiy 从 style.json 生成
+   ------------------------------------------------------------
+   本文件为生成产物：手改无效，请修改 style.json 后重新导出。
+   溯源说明：每个变量后的 @token 注释 = style.json 里的字段路径。
+{% if t.meta.note %}
+   风格要点：{{ t.meta.note }}
+{% endif %}
+   ============================================================ */
+
+:root {
+  /* —— 色彩（@token color.*） —— */
+  --{{ p }}-accent-50:  {{ t.color.accent.s50 }};   /* @token color.accent.s50 */
+  --{{ p }}-accent-100: {{ t.color.accent.s100 }};  /* @token color.accent.s100 */
+  --{{ p }}-accent-200: {{ t.color.accent.s200 }};  /* @token color.accent.s200 */
+  --{{ p }}-accent-300: {{ t.color.accent.s300 }};  /* @token color.accent.s300 */
+  --{{ p }}-accent-400: {{ t.color.accent.s400 }};  /* @token color.accent.s400 */
+  --{{ p }}-accent-500: {{ t.color.accent.s500 }};  /* @token color.accent.s500（主色） */
+  --{{ p }}-accent-600: {{ t.color.accent.s600 }};  /* @token color.accent.s600 */
+  --{{ p }}-accent-700: {{ t.color.accent.s700 }};  /* @token color.accent.s700 */
+
+  --{{ p }}-ink-900: {{ t.color.ink.ink900 }};  /* @token color.ink.ink900 */
+  --{{ p }}-ink-600: {{ t.color.ink.ink600 }};  /* @token color.ink.ink600 */
+  --{{ p }}-ink-400: {{ t.color.ink.ink400 }};  /* @token color.ink.ink400 */
+
+  --{{ p }}-paper:   {{ t.color.paper }};    /* @token color.paper */
+  --{{ p }}-surface: {{ t.color.surface }};  /* @token color.surface */
+  --{{ p }}-shadow:  {{ shadow_color }};     /* 派生值：color.shadow 或按投影类型混合 */
+
+  --{{ p }}-ok:     {{ t.color.status.ok }};      /* @token color.status.ok */
+  --{{ p }}-warn:   {{ t.color.status.warn }};    /* @token color.status.warn */
+  --{{ p }}-danger: {{ t.color.status.danger }};  /* @token color.status.danger */
+  --{{ p }}-info:   {{ t.color.status.info }};    /* @token color.status.info */
+
+  /* —— 形状（@token shape.radius.* · {{ shape_note }}） —— */
+  --{{ p }}-r-lg: {{ t.shape.radius.lg }};  /* @token shape.radius.lg（卡片/浮层） */
+  --{{ p }}-r-md: {{ t.shape.radius.md }};  /* @token shape.radius.md（下拉/中型容器） */
+  --{{ p }}-r-sm: {{ t.shape.radius.sm }};  /* @token shape.radius.sm（按钮/输入框/标签） */
+
+  /* —— 线与投影（@token line.* / elevation.* · {{ elev_note }}） —— */
+  --{{ p }}-border: {{ t.line.border_width }}px {{ t.line.border_style }} var(--{{ p }}-ink-900);  /* @token line.border_width + border_style */
+  --{{ p }}-e1: {{ levels.e1 }};  /* @token elevation.levels.e1 */
+  --{{ p }}-e2: {{ levels.e2 }};  /* @token elevation.levels.e2 */
+  --{{ p }}-e3: {{ levels.e3 }};  /* @token elevation.levels.e3 */
+
+  /* —— 动效（@token motion.*） —— */
+  --{{ p }}-dur:      {{ t.motion.duration }}ms;       /* @token motion.duration */
+  --{{ p }}-dur-slow: {{ t.motion.duration_slow }}ms;  /* @token motion.duration_slow */
+  --{{ p }}-ease-pop: {{ t.motion.easing_pop }};       /* @token motion.easing_pop（签名节奏） */
+  --{{ p }}-ease-out: {{ t.motion.easing_out }};       /* @token motion.easing_out */
+
+  /* —— 字体（@token type.*） —— */
+  --{{ p }}-font: {{ t.type.font_stack }};  /* @token type.font_stack */
+
+  /* —— 间距（@token spacing.unit × steps · {{ t.spacing.unit }}pt 网格） —— */
+{% for step in t.spacing.steps %}
+  --{{ p }}-sp-{{ step }}: {{ t.spacing.unit * step }}px;  /* @token spacing：unit*{{ step }} */
+{% endfor %}
+}
+
+/* ============ 基底（@token type.body_size / body_line_height / color.paper） ============ */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--{{ p }}-font);
+  background: var(--{{ p }}-paper);
+  color: var(--{{ p }}-ink-900);
+  font-size: {{ t.type.body_size }};
+  line-height: {{ t.type.body_line_height }};
+  -webkit-font-smoothing: antialiased;
+}

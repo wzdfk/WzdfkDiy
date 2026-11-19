@@ -1,0 +1,35 @@
+# {{ t.meta.name }} · 风格复刻提示词
+
+> 由 UIDiy 从 style.json 自动生成 · 版本 {{ t.meta.version }}
+> **用法**：把本文件 + `style.json` + `base.css` + `style.css` 一起发给 AI，要求"严格按此风格开发/扩展组件"。
+
+## 一句话风格
+
+{{ one_liner }}
+
+## 风格签名（必须遵守）
+
+{% for rule in signature_rules %}
+{{ loop.index }}. {{ rule }}
+{% endfor %}
+
+## 关键参数
+
+| 维度 | 值 |
+|---|---|
+| 主色 | `{{ t.color.accent.s500 }}`（8 级色阶见 style.json） |
+| 底色 / 面色 | `{{ t.color.paper }}` / `{{ t.color.surface }}` |
+| 圆角策略 | {{ shape_note }}：lg `{{ t.shape.radius.lg }}` · md `{{ t.shape.radius.md }}` · sm `{{ t.shape.radius.sm }}` |
+| 描边 | {{ t.line.border_width }}px {{ t.line.border_style }} `{{ t.color.ink.ink900 }}` |
+| 投影 | {{ elev_note }}：e1 `{{ t.elevation.levels.e1 }}` · e2 `{{ t.elevation.levels.e2 }}` · e3 `{{ t.elevation.levels.e3 }}` |
+| 焦点态 | {{ focus_note }} |
+| 动效 | {{ t.motion.duration }}ms · hover={{ hover_cn }} · active={{ active_cn }} |
+| 字体 | `{{ t.type.font_stack }}`；标题 {{ t.type.display_weight }} 字重 |
+
+## 如何扩展新组件
+
+1. 所有颜色、圆角、投影、动效一律引用 `base.css` 中的 `--{{ p }}-*` 变量，**禁止写死色值**
+2. 新组件类名使用 `.{{ p }}-` 前缀，圆角按容器大小选 `--{{ p }}-r-lg/md/sm`
+3. 交互反馈遵循本风格签名（投影规则见 style.css 中现有组件的写法）
+4. 状态色用 `--{{ p }}-ok / warn / danger / info`，语义：正常 / 预警 / 故障 / 信息
+5. 修改风格本身时，改 `style.json` 再重新生成，不要直接改 css

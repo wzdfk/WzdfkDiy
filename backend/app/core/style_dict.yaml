@@ -1,0 +1,101 @@
+# UIDiy 风格词典（数据文件，热加载 —— 改完即生效，无需重启）
+#
+# 结构：
+#   levels  —— 投影级别预设组（set_elevation 时整套切换，保持三级语义一致）
+#   rules   —— 关键词 → 操作列表。每个操作：
+#              op: set            设 path=value（值不变不记 diff）
+#              op: set_elevation  切换投影类型并联动 levels 预设
+#              op: levels         显式覆盖三级投影（配合 if 条件用）
+#              op: num_delta      数值 ±delta，clamp 限幅
+#              op: floor_min      不低于 value（低于则抬到 value）
+#              op: cap_max        不高于 value（高于则压到 value）
+#              op: round_fold     折角收圆（最后一角对齐第一角）
+#              op: radius_delta   各角加 add px
+#              可选 if: {path, equals} 条件，不满足则跳过
+#              reason 必填 —— 会出现在对话 diff 卡片里
+#
+# 注意：投影值里的 --s-shadow 是占位符，渲染时按档案前缀归一（如 --fd-shadow）。
+
+levels:
+  offset-solid:
+    e1: "3px 3px 0 var(--s-shadow)"
+    e2: "5px 5px 0 var(--s-shadow)"
+    e3: "8px 8px 0 var(--s-shadow)"
+  soft-blur:
+    e1: "0 2px 8px var(--s-shadow)"
+    e2: "0 4px 16px var(--s-shadow)"
+    e3: "0 8px 28px var(--s-shadow)"
+  layered:
+    e1: "0 1px 2px var(--s-shadow), 0 2px 6px var(--s-shadow)"
+    e2: "0 2px 4px var(--s-shadow), 0 5px 12px var(--s-shadow)"
+    e3: "0 3px 6px var(--s-shadow), 0 10px 24px var(--s-shadow)"
+
+rules:
+  - keywords: [柔和, 软和, 温柔, 轻柔]
+    ops:
+      - op: set_elevation
+        type: soft-blur
+        reason: 投影改为弥散柔和
+      - op: num_delta
+        path: line.border_width
+        delta: -0.5
+        clamp: [1, 3]
+        reason: 边框减细
+      - op: round_fold
+        path: shape.radius.lg
+        reason: 折角收圆，更柔和
+
+  - keywords: [硬朗, 锐利, 硬核, 利落, 锋利]
+    ops:
+      - op: set_elevation
+        type: offset-solid
+        reason: 投影改为实色硬投影
+      - op: num_delta
+        path: line.border_width
+        delta: 0.5
+        clamp: [1, 3]
+        reason: 边框加粗
+
+  - keywords: [圆润, 圆一点, 可爱]
+    ops:
+      - op: radius_delta
+        add: 4
+        reason: 圆角加大更圆润
+
+  - keywords: [扁平, 极简, 简约, 轻盈]
+    ops:
+      - op: set_elevation
+        type: soft-blur
+        reason: 弱化为轻投影
+      - op: cap_max
+        path: line.border_width
+        value: 1
+        reason: 边框减到最细
+
+  - keywords: [厚重, 敦实, 沉稳]
+    ops:
+      - op: levels
+        if: { path: elevation.type, equals: offset-solid }
+        e1: "4px 4px 0 var(--s-shadow)"
+        e2: "7px 7px 0 var(--s-shadow)"
+        e3: "11px 11px 0 var(--s-shadow)"
+        reason: 投影加深，更敦实
+
+  - keywords: [俏皮, 活泼, 玩趣]
+    ops:
+      - op: set
+        path: motion.hover
+        value: tilt
+        reason: hover 改为微倾斜
+
+  - keywords: [从容, 稳重, 舒缓]
+    ops:
+      - op: floor_min
+        path: motion.duration
+        value: 240
+        reason: 节奏放缓更从容
+      - op: set
+        path: motion.hover
+        value: lift
+        if: { path: motion.hover, equals: tilt }
+        reason: 去掉倾斜

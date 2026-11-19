@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统默认风格 — 风格展示</title>
+<style>
+  /* ============================================================
+     系统默认风格 v1.0（原 FOLD 折角设计系统，展示页内嵌版，与 fold-design-system.css 等同）
+     四条签名规则：
+     1. 折角圆角 —— 三圆一利，全局不对称
+     2. 偏移实心投影 —— 色块硬投影，无模糊，印刷感
+     3. 硬边细线 + 虚线焦点环 —— 1.5px 实线，focus 虚线框
+     4. 弹性微动效 —— 统一 180ms 回弹曲线
+     ============================================================ */
+
+  :root {
+    /* —— 1. 色彩令牌（默认：湖蓝色） —— */
+    --fd-accent-50:  #f2f8fb; --fd-accent-100: #e1eff6; --fd-accent-200: #c3dfec;
+    --fd-accent-300: #9cc9df; --fd-accent-400: #6aadd0; --fd-accent-500: #4a92bd;
+    --fd-accent-600: #3a789c; --fd-accent-700: #2f5f7d;
+
+    --fd-ink-900: #23282f; --fd-ink-600: #56606a; --fd-ink-400: #98a2ad;
+    --fd-paper:   #f5f4ee; --fd-surface: #ffffff;
+    --fd-shadow:  color-mix(in srgb, var(--fd-ink-900) 88%, var(--fd-accent-500));
+    --fd-ok: #4faf78; --fd-warn: #dfa03c; --fd-danger: #d96060; --fd-info: #8a7fd6;
+
+    /* —— 2. 形状令牌：折角圆角（三圆一利） —— */
+    --fd-r-lg: 16px 16px 16px 3px;
+    --fd-r-md: 12px 12px 12px 3px;
+    --fd-r-sm:  8px  8px  8px 2px;
+
+    /* —— 3. 线与投影令牌 —— */
+    --fd-border: 1.5px solid var(--fd-ink-900);
+    --fd-e1: 3px 3px 0 var(--fd-shadow);
+    --fd-e2: 5px 5px 0 var(--fd-shadow);
+    --fd-e3: 8px 8px 0 var(--fd-shadow);
+
+    /* —— 4. 动效令牌 —— */
+    --fd-dur: 180ms; --fd-dur-slow: 320ms;
+    --fd-ease-pop: cubic-bezier(.34, 1.56, .64, 1);
+    --fd-ease-out: cubic-bezier(.22, .61, .36, 1);
+
+    --fd-font: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --fd-sp-1: 4px; --fd-sp-2: 8px; --fd-sp-3: 12px; --fd-sp-4: 16px;
+    --fd-sp-5: 24px; --fd-sp-6: 32px; --fd-sp-7: 48px;
+  }
+
+  /* —— 主题切换（展示用：主色可换，风格不变） —— */
+  .th { position: absolute; opacity: 0; pointer-events: none; }
+  body:has(#th-lake:checked) { --fd-accent-50:#f2f8fb; --fd-accent-100:#e1eff6; --fd-accent-200:#c3dfec; --fd-accent-300:#9cc9df; --fd-accent-400:#6aadd0; --fd-accent-500:#4a92bd; --fd-accent-600:#3a789c; --fd-accent-700:#2f5f7d; }
+  body:has(#th-azure:checked) { --fd-accent-50:#f0f9fc; --fd-accent-100:#dff1f8; --fd-accent-200:#bfe3f0; --fd-accent-300:#8fd0e6; --fd-accent-400:#5cb7d8; --fd-accent-500:#3aa0c8; --fd-accent-600:#2e83a8; --fd-accent-700:#266a89; }
+  body:has(#th-rosegold:checked) { --fd-accent-50:#fcf7f8; --fd-accent-100:#f7eaec; --fd-accent-200:#ecd0d4; --fd-accent-300:#ddadb4; --fd-accent-400:#cf8d96; --fd-accent-500:#b76e79; --fd-accent-600:#9a5863; --fd-accent-700:#7d4550; }
+  body:has(#th-rose:checked) { --fd-accent-50:#fdf3f7; --fd-accent-100:#fbe4ec; --fd-accent-200:#f6c3d5; --fd-accent-300:#ef9cb9; --fd-accent-400:#e5759d; --fd-accent-500:#d34f7c; --fd-accent-600:#b23a64; --fd-accent-700:#902e51; }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--fd-font);
+    background: var(--fd-paper);
+    color: var(--fd-ink-900);
+    line-height: 1.65;
+    padding: 48px 24px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 860px; margin: 0 auto; }
+
+  /* —— 标题体系 —— */
+  .fd-display { font-size: 28px; font-weight: 800; letter-spacing: -.02em; line-height: 1.25; }
+  .fd-title   { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+  .fd-label   { font-size: 11px; font-weight: 600; letter-spacing: .14em; color: var(--fd-accent-600); }
+
+  .head { margin-bottom: var(--fd-sp-7); }
+  .head .fd-label { margin-bottom: var(--fd-sp-2); display: block; }
+  .head p { margin-top: var(--fd-sp-2); color: var(--fd-ink-600); font-size: 14px; max-width: 560px; }
+
+  section { margin-bottom: var(--fd-sp-7); }
+  section > .fd-label { display: block; margin-bottom: var(--fd-sp-3); }
+
+  /* —— 虚线焦点环（签名规则 3） —— */
+  .fd-btn:focus-visible, .fd-input:focus-visible, .opt:focus-visible {
+    outline: 2px dashed var(--fd-accent-500);
+    outline-offset: 3px;
+  }
+
+  /* —— Card —— */
+  .fd-card {
+    background: var(--fd-surface);
+    border: var(--fd-border);
+    border-radius: var(--fd-r-lg);
+    box-shadow: var(--fd-e2);
+    padding: var(--fd-sp-5);
+    transition: transform var(--fd-dur) var(--fd-ease-pop),
+                box-shadow var(--fd-dur) var(--fd-ease-pop);
+  }
+  .fd-card:hover { transform: translate(-3px, -3px); box-shadow: var(--fd-e3); }
+  .fd-card-flat { box-shadow: var(--fd-e1); }
+  .fd-card-flat:hover { transform: none; box-shadow: var(--fd-e1); }
+  .fd-card .meta {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: var(--fd-sp-4); padding-top: var(--fd-sp-3);
+    border-top: 1.5px dashed var(--fd-accent-200);
+    font-size: 12px; color: var(--fd-ink-400);
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--fd-sp-5); }
+
+  /* —— Button —— */
+  .btn-row { display: flex; flex-wrap: wrap; gap: var(--fd-sp-4); align-items: center; }
+  .fd-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--fd-sp-2);
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    padding: 10px 22px;
+    background: var(--fd-surface); color: var(--fd-ink-900);
+    border: var(--fd-border); border-radius: var(--fd-r-sm);
+    box-shadow: var(--fd-e1);
+    cursor: pointer; user-select: none;
+    transition: transform var(--fd-dur) var(--fd-ease-pop),
+                box-shadow var(--fd-dur) var(--fd-ease-pop),
+                background var(--fd-dur) var(--fd-ease-out),
+                color var(--fd-dur) var(--fd-ease-out);
+  }
+  .fd-btn:hover  { transform: translate(-2px, -2px); box-shadow: var(--fd-e2); }
+  .fd-btn:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--fd-shadow); }
+  .fd-btn-primary { background: var(--fd-accent-500); color: #fff; }
+  .fd-btn-primary:hover { background: var(--fd-accent-600); }
+  .fd-btn-danger { background: var(--fd-danger); color: #fff; }
+  .fd-btn-danger:hover { background: color-mix(in srgb, var(--fd-danger) 85%, #000); }
+  .fd-btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--fd-accent-600); }
+  .fd-btn-ghost:hover { background: var(--fd-accent-50); border-color: var(--fd-border); transform: none; box-shadow: none; }
+  .fd-btn:disabled { background: #e7e5dd; color: var(--fd-ink-400); border-color: #cfccc3; box-shadow: none; cursor: not-allowed; transform: none !important; }
+
+  /* —— Input —— */
+  .fd-field { display: flex; flex-direction: column; gap: var(--fd-sp-1); margin-bottom: var(--fd-sp-4); max-width: 420px; }
+  .fd-field:last-child { margin-bottom: 0; }
+  .fd-field > label { font-size: 13px; font-weight: 600; color: var(--fd-ink-600); }
+  .fd-input {
+    width: 100%; font-family: inherit; font-size: 14px; color: var(--fd-ink-900);
+    background: var(--fd-surface);
+    border: var(--fd-border); border-radius: var(--fd-r-sm);
+    padding: 10px 14px;
+    transition: border-color var(--fd-dur) var(--fd-ease-out), box-shadow var(--fd-dur) var(--fd-ease-pop);
+  }
+  .fd-input::placeholder { color: var(--fd-ink-400); }
+  .fd-input:hover { border-color: var(--fd-accent-400); }
+  .fd-input:focus { outline: none; border-color: var(--fd-accent-500); box-shadow: 3px 3px 0 var(--fd-accent-300); }
+  .fd-hint { font-size: 12px; color: var(--fd-ink-400); }
+  .fd-error .fd-input { border-color: var(--fd-danger); }
+  .fd-error .fd-hint { color: var(--fd-danger); }
+
+  /* —— Badge —— */
+  .badge-row { display: flex; flex-wrap: wrap; gap: var(--fd-sp-3); }
+  .fd-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    padding: 3px 12px;
+    border-radius: var(--fd-r-sm);
+    border: 1.5px solid var(--fd-ink-900);
+    background: var(--fd-accent-100); color: var(--fd-accent-700);
+    box-shadow: 2px 2px 0 var(--fd-shadow);
+  }
+  .fd-badge-ok     { background: #e3f3e9; color: #2e7d50; border-color: var(--fd-ok); }
+  .fd-badge-warn   { background: #faf0dd; color: #9c6b1d; border-color: var(--fd-warn); }
+  .fd-badge-danger { background: #fbe6e6; color: #a63d3d; border-color: var(--fd-danger); }
+  .fd-badge-info   { background: #eeebf9; color: #5c4fa3; border-color: var(--fd-info); }
+
+  /* —— Link —— */
+  .fd-link {
+    color: var(--fd-accent-600); font-weight: 600; text-decoration: none;
+    padding-bottom: 2px;
+    background: linear-gradient(currentColor, currentColor) no-repeat left bottom / 0% 2px;
+    transition: background-size var(--fd-dur-slow) var(--fd-ease-out);
+  }
+  .fd-link:hover { background-size: 100% 2px; }
+
+  /* —— 令牌展示 —— */
+  .token-colors { display: flex; flex-wrap: wrap; gap: var(--fd-sp-2); }
+  .swatch { width: 56px; text-align: center; font-size: 10px; color: var(--fd-ink-400); }
+  .swatch i { display: block; height: 44px; border-radius: var(--fd-r-sm); border: 1.5px solid var(--fd-border); margin-bottom: 4px; }
+  .token-shapes { display: flex; flex-wrap: wrap; gap: var(--fd-sp-5); }
+  .shape-demo {
+    width: 120px; height: 84px;
+    background: var(--fd-surface); border: var(--fd-border);
+    box-shadow: var(--fd-e1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--fd-ink-600);
+  }
+  .token-elev { display: flex; flex-wrap: wrap; gap: var(--fd-sp-5); }
+  .elev-demo {
+    width: 110px; height: 72px;
+    background: var(--fd-surface); border: var(--fd-border); border-radius: var(--fd-r-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--fd-ink-600);
+  }
+  .fd-spring { transition: transform var(--fd-dur) var(--fd-ease-pop); }
+  .fd-spring:hover { transform: rotate(-1deg) scale(1.04); }
+
+  /* —— 主题选择器 —— */
+  .theme-picker { position: fixed; top: 20px; right: 24px; z-index: 100; }
+  .picker-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: inherit; font-size: 13px; color: var(--fd-ink-900);
+    background: var(--fd-surface);
+    border: var(--fd-border); border-radius: var(--fd-r-sm);
+    padding: 8px 14px;
+    box-shadow: var(--fd-e1);
+    cursor: pointer;
+  }
+  .picker-btn::after { content: "▾"; color: var(--fd-ink-400); font-size: 11px; }
+  .picker-btn .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--fd-accent-500); border: 1.5px solid var(--fd-ink-900); }
+  .picker-btn:focus { outline: none; }
+  .menu {
+    position: absolute; top: calc(100% + 8px); right: 0; min-width: 160px;
+    background: var(--fd-surface);
+    border: var(--fd-border); border-radius: var(--fd-r-md);
+    box-shadow: var(--fd-e2);
+    padding: 6px;
+    opacity: 0; visibility: hidden; transform: translateY(-4px);
+    transition: opacity .18s var(--fd-ease-out), transform .18s var(--fd-ease-pop), visibility .18s;
+  }
+  .theme-picker:hover .menu, .theme-picker:focus-within .menu {
+    opacity: 1; visibility: visible; transform: translateY(0);
+  }
+  .opt {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: var(--fd-r-sm);
+    cursor: pointer; font-size: 13px; color: var(--fd-ink-600);
+    transition: background .15s var(--fd-ease-out), color .15s var(--fd-ease-out);
+  }
+  .opt:hover { background: var(--fd-accent-50); color: var(--fd-ink-900); }
+  .opt .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--c); border: 1.5px solid var(--fd-ink-900); }
+  .opt::after { content: "✓"; margin-left: auto; font-size: 12px; opacity: 0; }
+  #th-lake:checked ~ .theme-picker .opt[for="th-lake"],
+  #th-azure:checked ~ .theme-picker .opt[for="th-azure"],
+  #th-rosegold:checked ~ .theme-picker .opt[for="th-rosegold"],
+  #th-rose:checked ~ .theme-picker .opt[for="th-rose"] { background: var(--fd-accent-50); color: var(--fd-ink-900); font-weight: 600; }
+  #th-lake:checked ~ .theme-picker .opt[for="th-lake"]::after,
+  #th-azure:checked ~ .theme-picker .opt[for="th-azure"]::after,
+  #th-rosegold:checked ~ .theme-picker .opt[for="th-rosegold"]::after,
+  #th-rose:checked ~ .theme-picker .opt[for="th-rose"]::after { opacity: 1; color: var(--fd-accent-600); }
+
+  footer {
+    margin-top: var(--fd-sp-7); padding-top: var(--fd-sp-5);
+    border-top: 1.5px dashed var(--fd-accent-200);
+    font-size: 12px; color: var(--fd-ink-400);
+    display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+  <input class="th" type="radio" name="theme" id="th-lake" checked>
+  <input class="th" type="radio" name="theme" id="th-azure">
+  <input class="th" type="radio" name="theme" id="th-rosegold">
+  <input class="th" type="radio" name="theme" id="th-rose">
+
+  <div class="theme-picker">
+    <button class="picker-btn" type="button"><span class="dot"></span>主题色</button>
+    <div class="menu">
+      <label class="opt" for="th-lake"><span class="dot" style="--c:#4a92bd"></span>湖蓝色</label>
+      <label class="opt" for="th-azure"><span class="dot" style="--c:#3aa0c8"></span>天青色</label>
+      <label class="opt" for="th-rosegold"><span class="dot" style="--c:#b76e79"></span>玫瑰金</label>
+      <label class="opt" for="th-rose"><span class="dot" style="--c:#d34f7c"></span>玫红色</label>
+    </div>
+  </div>
+
+  <main class="page">
+
+    <header class="head">
+      <span class="fd-label">FOLD DESIGN SYSTEM · V1.0</span>
+      <h1 class="fd-display">折角设计系统</h1>
+      <p>四条签名规则：折角圆角 · 偏移实心投影 · 硬边细线+虚线焦点环 · 弹性微动效。主色可换，风格不散——换的只是色，认得出的永远是形。</p>
+    </header>
+
+    <!-- 设计令牌 -->
+    <section>
+      <span class="fd-label">DESIGN TOKENS · 设计令牌</span>
+      <div class="fd-card fd-card-flat" style="padding:28px;">
+        <p style="font-size:13px;color:var(--fd-ink-600);margin-bottom:16px;">主色阶（8 级，换肤只改这一组）</p>
+        <div class="token-colors">
+          <div class="swatch"><i style="background:var(--fd-accent-50)"></i>50</div>
+          <div class="swatch"><i style="background:var(--fd-accent-100)"></i>100</div>
+          <div class="swatch"><i style="background:var(--fd-accent-200)"></i>200</div>
+          <div class="swatch"><i style="background:var(--fd-accent-300)"></i>300</div>
+          <div class="swatch"><i style="background:var(--fd-accent-400)"></i>400</div>
+          <div class="swatch"><i style="background:var(--fd-accent-500)"></i>500</div>
+          <div class="swatch"><i style="background:var(--fd-accent-600)"></i>600</div>
+          <div class="swatch"><i style="background:var(--fd-accent-700)"></i>700</div>
+        </div>
+        <p style="font-size:13px;color:var(--fd-ink-600);margin:24px 0 16px;">折角圆角：三圆一利（大 / 中 / 小）</p>
+        <div class="token-shapes">
+          <div class="shape-demo" style="border-radius:var(--fd-r-lg);">16 / 16 / 16 / 3</div>
+          <div class="shape-demo" style="border-radius:var(--fd-r-md);">12 / 12 / 12 / 3</div>
+          <div class="shape-demo" style="border-radius:var(--fd-r-sm);">8 / 8 / 8 / 2</div>
+        </div>
+        <p style="font-size:13px;color:var(--fd-ink-600);margin:24px 0 16px;">偏移投影三级（悬停试试弹性回弹）</p>
+        <div class="token-elev">
+          <div class="elev-demo fd-spring" style="box-shadow:var(--fd-e1);">e1 · 3px</div>
+          <div class="elev-demo fd-spring" style="box-shadow:var(--fd-e2);">e2 · 5px</div>
+          <div class="elev-demo fd-spring" style="box-shadow:var(--fd-e3);">e3 · 8px</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Button -->
+    <section>
+      <span class="fd-label">BUTTON · 按钮（悬停抬起 / 按下压扁，试试键盘 Tab 虚线焦点环）</span>
+      <div class="fd-card" style="padding:28px;">
+        <div class="btn-row">
+          <button class="fd-btn fd-btn-primary">主要操作</button>
+          <button class="fd-btn">次要操作</button>
+          <button class="fd-btn fd-btn-ghost">幽灵按钮</button>
+          <button class="fd-btn fd-btn-danger">危险操作</button>
+          <button class="fd-btn" disabled>禁用状态</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Card -->
+    <section>
+      <span class="fd-label">CARD · 卡片</span>
+      <div class="grid">
+        <div class="fd-card">
+          <h3 class="fd-title">站点概览</h3>
+          <p style="font-size:13.5px;color:var(--fd-ink-600);margin-top:8px;">设备接入数量与整体运行状态，数据每 5 分钟自动刷新。</p>
+          <div class="meta"><span>更新于 12 分钟前</span><span class="fd-badge fd-badge-ok">运行中</span></div>
+        </div>
+        <div class="fd-card">
+          <h3 class="fd-title">今日告警</h3>
+          <p style="font-size:13.5px;color:var(--fd-ink-600);margin-top:8px;">共 3 条未处理告警：1 条设备离线，2 条信号波动。</p>
+          <div class="meta"><span>更新于 3 分钟前</span><span class="fd-badge fd-badge-warn">待处理</span></div>
+        </div>
+        <div class="fd-card">
+          <h3 class="fd-title">同步任务</h3>
+          <p style="font-size:13.5px;color:var(--fd-ink-600);margin-top:8px;">夜间批量同步已完成 87%，预计 40 分钟后结束。</p>
+          <div class="meta"><span>更新于 1 分钟前</span><span class="fd-badge fd-badge-info">进行中</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Input -->
+    <section>
+      <span class="fd-label">INPUT · 输入框（focus 用实心投影，不是模糊光圈）</span>
+      <div class="fd-card" style="padding:28px;">
+        <div class="fd-field">
+          <label for="name">站点名称</label>
+          <input class="fd-input" id="name" type="text" placeholder="请输入站点名称">
+          <span class="fd-hint">支持中文、字母与数字，最长 20 字符</span>
+        </div>
+        <div class="fd-field">
+          <label for="ip">设备地址</label>
+          <input class="fd-input" id="ip" type="text" value="192.168.1.108">
+          <span class="fd-hint">填写设备的 IP 地址或域名</span>
+        </div>
+        <div class="fd-field fd-error">
+          <label for="port">端口号</label>
+          <input class="fd-input" id="port" type="text" value="90000">
+          <span class="fd-hint">端口号需在 1 – 65535 之间</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Badge & Link -->
+    <section>
+      <span class="fd-label">BADGE & LINK · 标签与链接</span>
+      <div class="fd-card" style="padding:28px;">
+        <div class="badge-row">
+          <span class="fd-badge fd-badge-ok">✓ 正常</span>
+          <span class="fd-badge fd-badge-warn">! 预警</span>
+          <span class="fd-badge fd-badge-danger">✕ 故障</span>
+          <span class="fd-badge fd-badge-info">● 待机</span>
+          <span class="fd-badge">默认标签</span>
+        </div>
+        <p style="margin-top:20px;font-size:14px;">
+          链接样式：<a class="fd-link" href="#">下划线扫入效果</a>—— hover 时从左往右划出，收尾干脆。
+        </p>
+      </div>
+    </section>
+
+    <footer>
+      <span>系统默认风格 v1.0（原 FOLD 折角设计系统）</span>
+      <span>tokens + 组件见 fold-design-system.css</span>
+    </footer>
+
+  </main>
+</body>
+</html>

@@ -1,0 +1,250 @@
+/* ============================================================
+   {{ t.meta.name }} · v{{ t.meta.version }} — style.css
+   由 UIDiy 从 style.json 生成
+   组件类前缀：.{{ p }}-*   （与 base.css 的 tokens 配套使用）
+   ------------------------------------------------------------
+   溯源说明：每条规则前的 @token 注释 = style.json 里的字段路径。
+   改任何值 → 只改 style.json 对应字段 → 重新生成。手改无效。
+   ============================================================ */
+
+/* ============ 文字体系（@token type.*） ============ */
+.{{ p }}-display {
+  /* @token type.display_size / display_weight / display_tracking */
+  font-size: {{ t.type.display_size }};
+  font-weight: {{ t.type.display_weight }};
+  letter-spacing: {{ t.type.display_tracking }};
+  line-height: 1.25;
+}
+.{{ p }}-title {
+  /* @token type.title_size / title_weight */
+  font-size: {{ t.type.title_size }};
+  font-weight: {{ t.type.title_weight }};
+  letter-spacing: -.01em;
+}
+.{{ p }}-label {
+  /* @token type.label_size / label_weight / label_tracking */
+  font-size: {{ t.type.label_size }};
+  font-weight: {{ t.type.label_weight }};
+  letter-spacing: {{ t.type.label_tracking }};
+  color: var(--{{ p }}-accent-600);
+}
+
+/* ============ 焦点环（@token line.focus_style · {{ focus_note }}） ============ */
+{% if t.line.focus_style == "dashed" -%}
+.{{ p }}-btn:focus-visible,
+.{{ p }}-input:focus-visible,
+.{{ p }}-opt:focus-visible {
+  /* @token line.focus_style = dashed */
+  outline: 2px dashed var(--{{ p }}-accent-500);
+  outline-offset: 3px;
+}
+{% elif t.line.focus_style == "solid" -%}
+.{{ p }}-btn:focus-visible,
+.{{ p }}-input:focus-visible,
+.{{ p }}-opt:focus-visible {
+  /* @token line.focus_style = solid */
+  outline: 2px solid var(--{{ p }}-accent-500);
+  outline-offset: 2px;
+}
+{% else -%}
+.{{ p }}-btn:focus-visible,
+.{{ p }}-input:focus-visible,
+.{{ p }}-opt:focus-visible {
+  /* @token line.focus_style = glow */
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--{{ p }}-accent-500) 30%, transparent);
+}
+{% endif %}
+
+/* ============ Card 卡片 ============ */
+.{{ p }}-card {
+  /* @token components.card（padding/radius/shadow） + color.surface + line.border */
+  background: var(--{{ p }}-surface);
+  border: var(--{{ p }}-border);
+  border-radius: {{ comp.card.radius }};
+  box-shadow: {{ comp.card.shadow }};
+  padding: {{ comp.card.padding }};
+  transition: transform var(--{{ p }}-dur) var(--{{ p }}-ease-pop),
+              box-shadow var(--{{ p }}-dur) var(--{{ p }}-ease-pop);
+}
+{% if t.motion.hover == "lift" -%}
+.{{ p }}-card:hover { /* @token motion.hover = lift */ transform: translate(-3px, -3px); box-shadow: var(--{{ p }}-e3); }
+{% elif t.motion.hover == "tilt" -%}
+.{{ p }}-card:hover { /* @token motion.hover = tilt */ transform: rotate(-1deg) scale(1.02); box-shadow: var(--{{ p }}-e3); }
+{% elif t.motion.hover == "press" -%}
+.{{ p }}-card:hover { /* @token motion.hover = press */ transform: scale(.985); box-shadow: var(--{{ p }}-e1); }
+{% endif %}
+.{{ p }}-card-flat { box-shadow: var(--{{ p }}-e1); }
+{% if t.motion.hover != "none" and t.motion.hover != "lift" -%}
+.{{ p }}-card-flat:hover { transform: none; box-shadow: var(--{{ p }}-e1); }
+{% endif %}
+.{{ p }}-card .meta {
+  /* @token spacing（sp-4/sp-3）+ line.border_style */
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: var(--{{ p }}-sp-4); padding-top: var(--{{ p }}-sp-3);
+  border-top: 1.5px dashed var(--{{ p }}-accent-200);
+  font-size: 12px; color: var(--{{ p }}-ink-400);
+}
+
+/* ============ Button 按钮 ============ */
+.{{ p }}-btn {
+  /* @token components.button（padding/font/radius/shadow） */
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--{{ p }}-sp-2);
+  font-family: inherit; font-size: {{ comp.button.font_size }}; font-weight: {{ comp.button.font_weight }};
+  padding: {{ comp.button.padding }};
+  background: var(--{{ p }}-surface); color: var(--{{ p }}-ink-900);
+  border: var(--{{ p }}-border); border-radius: {{ comp.button.radius }};
+  box-shadow: {{ comp.button.shadow }};
+  cursor: pointer; user-select: none;
+  transition: transform var(--{{ p }}-dur) var(--{{ p }}-ease-pop),
+              box-shadow var(--{{ p }}-dur) var(--{{ p }}-ease-pop),
+              background var(--{{ p }}-dur) var(--{{ p }}-ease-out),
+              color var(--{{ p }}-dur) var(--{{ p }}-ease-out);
+}
+{% if t.motion.hover == "lift" -%}
+.{{ p }}-btn:hover  { /* @token motion.hover = lift */ transform: translate(-2px, -2px); box-shadow: var(--{{ p }}-e2); }
+{% elif t.motion.hover == "press" -%}
+.{{ p }}-btn:hover  { /* @token motion.hover = press */ transform: scale(.97); box-shadow: var(--{{ p }}-e1); }
+{% elif t.motion.hover == "tilt" -%}
+.{{ p }}-btn:hover  { /* @token motion.hover = tilt */ transform: rotate(-1.5deg); box-shadow: var(--{{ p }}-e2); }
+{% endif %}
+{% if t.motion.active == "press" -%}
+.{{ p }}-btn:active { /* @token motion.active = press */ transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--{{ p }}-shadow); }
+{% endif %}
+
+.{{ p }}-btn-primary { /* @token color.accent.s500 */ background: var(--{{ p }}-accent-500); color: #fff; }
+.{{ p }}-btn-primary:hover { background: var(--{{ p }}-accent-600); }
+.{{ p }}-btn-danger { /* @token color.status.danger */ background: var(--{{ p }}-danger); color: #fff; }
+.{{ p }}-btn-danger:hover { background: color-mix(in srgb, var(--{{ p }}-danger) 85%, #000); }
+.{{ p }}-btn-ghost {
+  background: transparent; border-color: transparent; box-shadow: none;
+  color: var(--{{ p }}-accent-600);
+}
+.{{ p }}-btn-ghost:hover {
+  background: var(--{{ p }}-accent-50);
+  border-color: var(--{{ p }}-border);
+  transform: none; box-shadow: none;
+}
+.{{ p }}-btn:disabled {
+  background: #e7e5dd; color: var(--{{ p }}-ink-400);
+  border-color: #cfccc3; box-shadow: none;
+  cursor: not-allowed; transform: none !important;
+}
+
+/* ============ Input 输入框 ============ */
+.{{ p }}-field {
+  /* @token spacing（sp-1/sp-4） */
+  display: flex; flex-direction: column; gap: var(--{{ p }}-sp-1);
+  margin-bottom: var(--{{ p }}-sp-4);
+}
+.{{ p }}-field > label { font-size: 13px; font-weight: 600; color: var(--{{ p }}-ink-600); }
+.{{ p }}-input {
+  /* @token components.input（padding/font/border） */
+  width: 100%; font-family: inherit; font-size: {{ comp.input.font_size }};
+  font-weight: {{ comp.input.font_weight }};
+  color: var(--{{ p }}-ink-900);
+  background: var(--{{ p }}-surface);
+  border: var(--{{ p }}-border); border-radius: {{ comp.input.radius }};
+  padding: {{ comp.input.padding }};
+  transition: border-color var(--{{ p }}-dur) var(--{{ p }}-ease-out),
+              box-shadow var(--{{ p }}-dur) var(--{{ p }}-ease-pop);
+}
+.{{ p }}-input::placeholder { color: var(--{{ p }}-ink-400); }
+.{{ p }}-input:hover { border-color: var(--{{ p }}-accent-400); }
+{% if t.line.focus_style == "glow" -%}
+.{{ p }}-input:focus {
+  /* @token line.focus_style = glow */
+  outline: none; border-color: var(--{{ p }}-accent-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--{{ p }}-accent-400) 25%, transparent);
+}
+{% else -%}
+.{{ p }}-input:focus {
+  /* @token line.focus_style */
+  outline: none; border-color: var(--{{ p }}-accent-500);
+  box-shadow: 3px 3px 0 var(--{{ p }}-accent-300);
+}
+{% endif %}
+.{{ p }}-hint { font-size: 12px; color: var(--{{ p }}-ink-400); }
+.{{ p }}-error .{{ p }}-input { border-color: var(--{{ p }}-danger); }
+.{{ p }}-error .{{ p }}-hint  { color: var(--{{ p }}-danger); }
+
+/* ============ Badge 标签 ============ */
+.{{ p }}-badge {
+  /* @token components.badge（padding/font/shadow） */
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: {{ comp.badge.font_size }}; font-weight: {{ comp.badge.font_weight }};
+  padding: {{ comp.badge.padding }};
+  border-radius: {{ comp.badge.radius }};
+  border: var(--{{ p }}-border);
+  background: var(--{{ p }}-accent-100); color: var(--{{ p }}-accent-700);
+  box-shadow: {{ comp.badge.shadow }};
+}
+.{{ p }}-badge-ok     { /* @token color.status.ok */ background: #e3f3e9; color: #2e7d50; border-color: var(--{{ p }}-ok); }
+.{{ p }}-badge-warn   { /* @token color.status.warn */ background: #faf0dd; color: #9c6b1d; border-color: var(--{{ p }}-warn); }
+.{{ p }}-badge-danger { /* @token color.status.danger */ background: #fbe6e6; color: #a63d3d; border-color: var(--{{ p }}-danger); }
+.{{ p }}-badge-info   { /* @token color.status.info */ background: #eeebf9; color: #5c4fa3; border-color: var(--{{ p }}-info); }
+
+/* ============ Toast 轻通知 ============ */
+.{{ p }}-toast {
+  /* @token components.toast（padding/font/radius/shadow） */
+  display: flex; align-items: center; gap: var(--{{ p }}-sp-3);
+  min-width: 260px; max-width: 380px;
+  padding: {{ comp.toast.padding }};
+  background: var(--{{ p }}-surface);
+  border: var(--{{ p }}-border); border-radius: {{ comp.toast.radius }};
+  box-shadow: {{ comp.toast.shadow }};
+  font-size: {{ comp.toast.font_size }};
+  animation: {{ p }}-toast-in var(--{{ p }}-dur-slow) var(--{{ p }}-ease-pop);
+}
+.{{ p }}-toast::before {
+  content: ""; width: 8px; height: 8px;
+  border-radius: 50%; flex: none;
+}
+.{{ p }}-toast-ok::before     { /* @token color.status.ok */ background: var(--{{ p }}-ok); }
+.{{ p }}-toast-warn::before   { /* @token color.status.warn */ background: var(--{{ p }}-warn); }
+.{{ p }}-toast-danger::before { /* @token color.status.danger */ background: var(--{{ p }}-danger); }
+.{{ p }}-toast-info::before   { /* @token color.status.info */ background: var(--{{ p }}-info); }
+
+@keyframes {{ p }}-toast-in {
+  /* @token motion.duration_slow / easing_pop */
+  from { opacity: 0; transform: translateY(-10px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ============ Dropdown 下拉 ============ */
+.{{ p }}-menu {
+  /* @token components.menu（padding/radius/shadow） */
+  min-width: 160px;
+  background: var(--{{ p }}-surface);
+  border: var(--{{ p }}-border); border-radius: {{ comp.menu.radius }};
+  box-shadow: {{ comp.menu.shadow }};
+  padding: {{ comp.menu.padding }};
+}
+.{{ p }}-opt {
+  /* @token components.menu（子项字号） */
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: var(--{{ p }}-r-sm);
+  cursor: pointer; font-size: {{ comp.menu.font_size }}; color: var(--{{ p }}-ink-600);
+  transition: background var(--{{ p }}-dur) var(--{{ p }}-ease-out),
+              color var(--{{ p }}-dur) var(--{{ p }}-ease-out);
+}
+.{{ p }}-opt:hover { background: var(--{{ p }}-accent-50); color: var(--{{ p }}-ink-900); }
+.{{ p }}-opt-selected { background: var(--{{ p }}-accent-50); color: var(--{{ p }}-ink-900); font-weight: 600; }
+
+/* ============ Link 链接（下划线扫入） ============ */
+.{{ p }}-link {
+  /* @token color.accent.s600 + motion.duration_slow */
+  color: var(--{{ p }}-accent-600); font-weight: 600; text-decoration: none;
+  padding-bottom: 2px;
+  background: linear-gradient(currentColor, currentColor) no-repeat left bottom / 0% 2px;
+  transition: background-size var(--{{ p }}-dur-slow) var(--{{ p }}-ease-out);
+}
+.{{ p }}-link:hover { background-size: 100% 2px; }
+
+/* ============ 动效演示件 ============ */
+.{{ p }}-spring { /* @token motion.duration / easing_pop */ transition: transform var(--{{ p }}-dur) var(--{{ p }}-ease-pop); }
+{% if t.motion.hover == "tilt" -%}
+.{{ p }}-spring:hover { transform: rotate(-2deg) scale(1.05); }
+{% else -%}
+.{{ p }}-spring:hover { transform: rotate(-1deg) scale(1.04); }
+{% endif %}
