@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useStyleStore } from '../stores/style'
 import { buildPreviewDoc, STYLE_TAG_ID } from '../preview/previewDoc'
 
+const props = defineProps<{ css?: string }>()
 const store = useStyleStore()
 const iframe = ref<HTMLIFrameElement | null>(null)
 const ready = ref(false)
+const activeCss = computed(() => props.css ?? store.css)
 
 function injectCss() {
   const doc = iframe.value?.contentDocument
   if (!doc) return
   const tag = doc.getElementById(STYLE_TAG_ID)
-  if (tag) tag.textContent = store.css
+  if (tag) tag.textContent = activeCss.value
 }
 
 onMounted(() => {
@@ -24,14 +26,14 @@ onMounted(() => {
   })
 })
 
-watch(() => store.css, () => {
+watch(activeCss, () => {
   if (ready.value) injectCss()
 })
 </script>
 
 <template>
   <div class="preview-shell">
-    <div v-if="!ready || !store.css" class="preview-loading">
+    <div v-if="!ready || !activeCss" class="preview-loading">
       <span class="fd-label">LOADING</span>
       <p>正在从后端加载生成的样式…</p>
     </div>

@@ -9,6 +9,7 @@ import StylePreview from '../components/StylePreview.vue'
 
 const store = useStyleStore()
 const activeTab = ref('chat')
+const tokenDrawerOpen = ref(false)
 const { message } = createDiscreteApi(['message'])
 
 const promptInput = ref('')
@@ -205,13 +206,54 @@ const naiveTheme = {
 
         <section class="center">
           <div class="center-frame">
-            <StylePreview />
+            <n-button
+              v-if="!tokenDrawerOpen && !store.pendingDiff"
+              class="drawer-fab"
+              quaternary
+              circle
+              size="small"
+              title="展开 Token 面板"
+              @click="tokenDrawerOpen = true"
+            >
+              <template #icon>
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </template>
+            </n-button>
+            <div v-if="store.pendingDiff" class="diff-view">
+              <div class="diff-bar">
+                <div class="diff-copy">
+                  <span class="fd-label">DIFF · 本轮 {{ store.pendingDiff.diff.length }} 项修改</span>
+                  <p>{{ store.pendingDiff.reply }}</p>
+                </div>
+                <div class="diff-actions">
+                  <n-button size="tiny" quaternary :disabled="store.busy" @click="store.rejectDiff()">拒绝</n-button>
+                  <n-button size="tiny" type="primary" :disabled="store.busy" @click="store.acceptDiff()">接受</n-button>
+                </div>
+              </div>
+              <div class="preview-split">
+                <div class="preview-col">
+                  <span class="preview-tag">基准</span>
+                  <div class="preview-box"><StylePreview :css="store.pendingDiff.baselineCss" /></div>
+                </div>
+                <div class="preview-col">
+                  <span class="preview-tag is-new">新预览</span>
+                  <div class="preview-box"><StylePreview /></div>
+                </div>
+              </div>
+            </div>
+            <StylePreview v-else />
           </div>
         </section>
 
-        <section class="right">
+        <section v-if="tokenDrawerOpen" class="right">
           <div class="right-card token-card">
-            <TokenPanel />
+            <div class="drawer-head">
+              <span class="fd-label">TOKENS · 维度面板</span>
+              <n-button size="tiny" quaternary @click="tokenDrawerOpen = false">收起 ›</n-button>
+            </div>
+            <div class="token-body"><TokenPanel /></div>
           </div>
         </section>
       </main>
@@ -417,6 +459,7 @@ const naiveTheme = {
   background: var(--fd-ok);
 }
 .center-frame {
+  position: relative;
   flex: 1;
   min-height: 0;
   border: var(--fd-border);
@@ -425,7 +468,51 @@ const naiveTheme = {
   overflow: hidden;
   background: var(--fd-paper);
 }
+.drawer-fab {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  opacity: .75;
+}
+.drawer-fab:hover { opacity: 1; }
 
+/* —— 本轮改动：基准 / 新预览并排对比 —— */
+.diff-view { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.diff-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: var(--fd-border);
+  background: var(--fd-surface);
+}
+.diff-copy { min-width: 0; }
+.diff-copy p { margin: 4px 0 0; font-size: 12px; color: var(--fd-ink-600); }
+.diff-actions { display: flex; gap: 8px; flex: none; }
+.preview-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px;
+}
+.preview-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.preview-tag { font-size: 11px; color: var(--fd-ink-400); letter-spacing: .1em; }
+.preview-tag.is-new { color: var(--fd-accent-600); }
+.preview-box {
+  flex: 1;
+  min-height: 0;
+  border: var(--fd-border);
+  border-radius: var(--fd-r-md);
+  overflow: hidden;
+  background: var(--fd-paper);
+}
+
+/* —— Token 抽屉 —— */
 .right {
   width: clamp(300px, 22vw, 360px);
   flex: none;
@@ -436,12 +523,23 @@ const naiveTheme = {
 .right-card {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--fd-surface);
   border: var(--fd-border);
   border-radius: var(--fd-r-lg);
   box-shadow: var(--fd-e1);
 }
+.drawer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+.token-body { flex: 1; min-height: 0; overflow-y: auto; }
 
 /* —— 弹窗（FOLD 折角 + 实心投影） —— */
 .modal-card {

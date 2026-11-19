@@ -10,6 +10,13 @@ export interface ArchiveItem {
   updated_at: string
 }
 
+/** 一轮对话改动的可视化对比：基准 CSS + 本轮 diff */
+export interface PendingDiff {
+  baselineCss: string
+  diff: DiffItem[]
+  reply: string
+}
+
 /**
  * 风格 tokens —— 全局唯一事实源。
  * 预览 iframe 加载的就是后端按这份 tokens 生成的真实 CSS。
@@ -22,6 +29,8 @@ export const useStyleStore = defineStore('style', () => {
   const archives = ref<ArchiveItem[]>([])
   /** 当前会话对应的档案名：决定存档弹窗默认值（覆盖 = 同名保存，改名 = 另存为） */
   const activeArchiveName = ref<string | null>(null)
+  /** 待用户确认的本轮对话改动（用于基准/新版并排预览） */
+  const pendingDiff = ref<PendingDiff | null>(null)
 
   // 后端写操作串行化；CSS 响应只接受最新一次，避免拖拽滑杆时乱序覆盖
   let writeQueue: Promise<unknown> = Promise.resolve()
@@ -52,6 +61,7 @@ export const useStyleStore = defineStore('style', () => {
   async function parsePrompt(prompt: string) {
     if (!prompt.trim()) return
     messages.value.push({ role: 'user', text: prompt })
+    pendingDiff.value = null
     busy.value = true
     try {
       tokens.value = await queueWrite(() => api.parsePrompt(prompt))
@@ -71,13 +81,16 @@ export const useStyleStore = defineStore('style', () => {
   async function send(message: string) {
     if (!message.trim()) return
     messages.value.push({ role: 'user', text: message })
+    pendingDiff.value = null
     busy.value = true
     try {
+      const baselineCss = css.value
       const hist = history()
       const res = await queueWrite(() => api.chat(message, hist))
       tokens.value = res.tokens
       const diff: DiffItem[] = res.diff
       messages.value.push({ role: 'bot', text: res.reply, diff: diff.length ? diff : undefined })
+      if (diff.length) pendingDiff.value = { baselineCss, diff, reply: res.reply }
       await refreshCss()
     } catch {
       messages.value.push({ role: 'bot', text: '对话失败，检查后端服务是否在 8300 端口运行。' })
@@ -86,9 +99,36 @@ export const useStyleStore = defineStore('style', () => {
     }
   }
 
+  /** 接受本轮改动：只收起对比，后端快照保留，仍可撤销 */
+  function acceptDiff() {
+    if (!pendingDiff.value) return
+    pendingDiff.value = null
+    messages.value.push({ role: 'bot', text: '已接受本轮修改，可随时用「撤销」回退。' })
+  }
+
+  /** 拒绝本轮改动：撤销 chat 写入，回到基准状态 */
+  async function rejectDiff() {
+    if (!pendingDiff.value || storeBusyGuard()) return
+    busy.value = true
+    try {
+      const res = await queueWrite(() => api.undo())
+      if (res.ok) {
+        tokens.value = res.tokens
+        await refreshCss()
+        messages.value.push({ role: 'bot', text: '已拒绝本轮修改，已回到基准状态。' })
+      } else {
+        messages.value.push({ role: 'bot', text: '拒绝失败：没有可撤销的改动。' })
+      }
+      pendingDiff.value = null
+    } finally {
+      busy.value = false
+    }
+  }
+
   /** 撤销最近一次改动（对话/面板/加载档案均可撤销） */
   async function undo() {
     if (storeBusyGuard()) return
+    pendingDiff.value = null
     busy.value = true
     try {
       const res = await queueWrite(() => api.undo())
@@ -110,6 +150,7 @@ export const useStyleStore = defineStore('style', () => {
   /** 面板改动：本地修改 tokens → 同步后端 → 刷新预览 */
   async function patch(fn: (t: StyleTokens) => void) {
     if (!tokens.value) return
+    pendingDiff.value = null
     const next = structuredClone(toRaw(tokens.value))
     fn(next)
     tokens.value = next
@@ -118,6 +159,7 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function reset() {
+    pendingDiff.value = null
     tokens.value = await queueWrite(() => api.resetStyle())
     activeArchiveName.value = null
     messages.value.push({ role: 'bot', text: '已重置为「系统默认风格」。' })
@@ -125,6 +167,7 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function useBlankTemplate() {
+    pendingDiff.value = null
     tokens.value = await queueWrite(() => api.useBlankTemplate())
     activeArchiveName.value = null
     messages.value.push({ role: 'bot', text: '已切换到「空模板」：无圆角、无投影、中性灰的朴素基线，可从维度面板开始打造个人风格。' })
@@ -157,6 +200,7 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function loadArchive(id: number) {
+    pendingDiff.value = null
     const res = await queueWrite(() => api.loadArchive(id))
     if (res.ok) {
       tokens.value = res.tokens
@@ -174,8 +218,9 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   return {
-    tokens, css, messages, busy, archives, activeArchiveName,
-    init, refreshCss, parsePrompt, send, undo, patch, reset, useBlankTemplate,
+    tokens, css, messages, busy, archives, activeArchiveName, pendingDiff,
+    init, refreshCss, parsePrompt, send, undo, acceptDiff, rejectDiff,
+    patch, reset, useBlankTemplate,
     refreshArchives, saveArchive, loadArchive, deleteArchive,
   }
 })

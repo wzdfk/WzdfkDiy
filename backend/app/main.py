@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -47,22 +46,13 @@ app.add_middleware(
 )
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """记录每个请求的状态与耗时；异常写完整堆栈。"""
-    started = time.perf_counter()
+async def log_errors(request: Request, call_next):
+    """只在异常时记录完整堆栈；正常请求不产生访问日志。"""
     try:
-        response = await call_next(request)
-        status = response.status_code
+        return await call_next(request)
     except Exception:
         logger.exception("请求异常 %s %s", request.method, request.url.path)
         raise
-    cost_ms = (time.perf_counter() - started) * 1000
-    client = request.client.host if request.client else "-"
-    logger.info(
-        "REQ %s %s -> %s (%.1fms) client=%s",
-        request.method, request.url.path, status, cost_ms, client,
-    )
-    return response
 
 
 app.include_router(style_router)

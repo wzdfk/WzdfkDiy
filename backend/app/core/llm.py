@@ -144,6 +144,13 @@ _ENUMS: dict[str, set[str]] = {
     "motion.active": {"press", "none"},
 }
 _NUMBERS = {"line.border_width", "motion.duration", "motion.duration_slow"}
+_EASINGS = {"motion.easing_pop", "motion.easing_out"}
+_EASING_RE = re.compile(
+    r"^(?:linear|ease(?:-in|-out|-in-out)?"
+    r"|cubic-bezier\(\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*\)"
+    r"|steps\(\s*\d+\s*,\s*(?:start|end)\s*\))$",
+    re.IGNORECASE,
+)
 _RADIUS_KEYS = {"lg", "md", "sm"}
 _BOX_FIELDS = set(ControlBox.model_fields.keys())
 _COMPONENTS = {"button", "card", "input", "badge", "toast", "menu"}
@@ -156,6 +163,8 @@ def _valid_change(path: str, value: Any) -> bool:
         return value in _ENUMS[path]
     if path in _NUMBERS:
         return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if path in _EASINGS:
+        return isinstance(value, str) and bool(_EASING_RE.fullmatch(value.strip()))
     if path in ("color.paper", "color.surface", "color.shadow"):
         return isinstance(value, str) and (_HEX.match(value) is not None or value is None)
     if path.startswith("color.accent.s") and path.split(".")[-1] in {f"s{i}" for i in (50, 100, 200, 300, 400, 500, 600, 700)}:
@@ -278,7 +287,14 @@ _CHAT_SYSTEM = """你是 UI 风格调整助手。根据用户消息对当前风�
 2. 只改与消息相关的维度（通常 2-5 项），宁少勿滥——这是风格收敛的关键
 3. path 必须来自当前 tokens JSON 的真实字段
 4. 色值 #RRGGBB；数值单位按原字段惯例（px 字符串 / ms 数字）；改主色只改 color.accent.s500，系统自动推导整套色阶
-5. 用户说"再XX一点"表示在当前值基础上小步调整"""
+5. 用户说"再XX一点"表示在当前值基础上小步调整
+6. **reply 必须与 changes 一致**：reply 里提到的每一个效果，都必须在 changes 里有对应字段；没写进 changes 的效果不许写进 reply
+7. 动效映射（用户提到时必须输出对应 change）：
+   - 悬停放大/缩放/俏皮 → motion.hover = "tilt"（放大 1.05 并轻微旋转）；悬停缩小 → "press"
+   - 悬停上浮/层次 → "lift"；不要动效 → "none"
+   - 回弹更强/更软/更慢 → motion.easing_pop（必须是 CSS timing-function，如 cubic-bezier(.2, 1.8, .4, 1) / ease-out / linear）或 motion.duration（数字 ms，建议 120-500）
+   - 如果本轮没有输出任何 motion.* change，reply 中禁止出现「回弹」「缩放」「悬停动画」等动效词
+8. 大圆角用 shape.radius.lg/md/sm；不要只改颜色却在 reply 里声称改了圆角或动效"""
 
 
 def parse_prompt(text: str) -> StyleTokens:

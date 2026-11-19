@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import zipfile
 from datetime import datetime, timezone
 
@@ -16,6 +17,12 @@ from ..core.prompt_gen import render_style_prompt
 from ..core.tokens import StyleTokens, blank_default, fold_default
 
 router = APIRouter(prefix="/api/style", tags=["style"])
+logger = logging.getLogger(__name__)
+
+
+def _brief(text: str, limit: int = 60) -> str:
+    value = (text or "").replace("\n", " ").strip()
+    return value if len(value) <= limit else value[:limit] + "…"
 
 
 # ---------- 会话内风格档案（V0 内存态；持久化到 MySQL 在 M4） ----------
@@ -42,6 +49,7 @@ def get_current_style():
 
 @router.post("/current")
 def set_current_style(tokens: StyleTokens):
+    logger.debug("面板调参 -> %s", tokens.meta.name)
     _push_snapshot()
     _session["default"] = tokens
     return {"ok": True}
@@ -51,6 +59,7 @@ def set_current_style(tokens: StyleTokens):
 def parse_style(payload: dict):
     """提示词 → 初始风格档案。"""
     text = payload.get("prompt", "")
+    logger.info("定义风格 prompt=%r", _brief(text))
     _push_snapshot()
     tokens = llm.parse_prompt(text)
     _session["default"] = tokens
@@ -62,9 +71,11 @@ def chat(payload: dict):
     """多轮对话优化：{message, history?} → 新档案 + diff + 回复。"""
     message = payload.get("message", "")
     history = payload.get("history") or []
+    logger.info("对话调整 message=%r", _brief(message))
     current = _session["default"]
     _push_snapshot()
     tokens, diff, reply = llm.chat_diff(current, message, history=history)
+    logger.info("对话完成 diff=%d 项", len(diff))
     _session["default"] = tokens
     return {"tokens": tokens, "diff": diff, "reply": reply}
 
@@ -75,11 +86,13 @@ def undo_style():
     if not _undo_stack:
         return {"ok": False, "error": "没有可撤销的改动", "tokens": _session["default"]}
     _session["default"] = _undo_stack.pop()
+    logger.info("撤销一次，剩余 %d 步", len(_undo_stack))
     return {"ok": True, "tokens": _session["default"]}
 
 
 @router.post("/reset")
 def reset_style():
+    logger.info("重置为系统默认风格")
     _push_snapshot()
     _session["default"] = fold_default()
     return _session["default"]
@@ -88,6 +101,7 @@ def reset_style():
 @router.post("/blank")
 def use_blank_template():
     """切换到零装饰空模板，供用户从朴素基线打造个人风格。"""
+    logger.info("切换到空模板")
     _push_snapshot()
     _session["default"] = blank_default()
     return _session["default"]
@@ -104,6 +118,7 @@ def preview_css():
 def export_style(payload: dict | None = None):
     """导出三件套 zip：style.json + base.css + style.css + STYLE_PROMPT.md。"""
     tokens = _session["default"]
+    logger.info("导出风格包 name=%r", tokens.meta.name)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     safe_name = "".join(c for c in tokens.meta.name if c.isalnum() or c in "·-") or "style"
     from urllib.parse import quote
@@ -138,6 +153,7 @@ def save_archive(payload: dict):
         return {"ok": False, "error": "档案名不能为空"}
     try:
         archive_id = archive_db.save_archive(name, _session["default"])
+        logger.info("存档 name=%r id=%s", name, archive_id)
         return {"ok": True, "id": archive_id, "name": name}
     except Exception as e:
         return _db_error(e)
@@ -160,6 +176,7 @@ def load_archive(archive_id: int):
         tokens, archive_name = archive_db.load_archive(archive_id)
         tokens.meta.name = archive_name
         _session["default"] = tokens
+        logger.info("加载档案 id=%s name=%r", archive_id, archive_name)
         return {"ok": True, "tokens": tokens}
     except KeyError as e:
         return {"ok": False, "error": str(e)}
@@ -171,6 +188,7 @@ def load_archive(archive_id: int):
 def delete_archive(archive_id: int):
     try:
         archive_db.delete_archive(archive_id)
+        logger.info("删除档案 id=%s", archive_id)
         return {"ok": True}
     except KeyError as e:
         return {"ok": False, "error": str(e)}

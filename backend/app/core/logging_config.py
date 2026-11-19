@@ -51,7 +51,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     file_handler.setFormatter(logging.Formatter(_FILE_FORMAT, _DATE_FORMAT))
 
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter(_CONSOLE_FORMAT, _DATE_FORMAT))
 
     root = logging.getLogger()
@@ -60,12 +60,16 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     root.addHandler(file_handler)
     root.addHandler(console_handler)
 
-    # 让 uvicorn 的访问/错误日志也走同一套双写配置，避免重复控制台输出
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        logger = logging.getLogger(name)
-        logger.handlers.clear()
-        logger.propagate = True
-        logger.setLevel(level)
+    # uvicorn 访问日志是噪声：完全静音；错误级保留，便于排查故障
+    access = logging.getLogger("uvicorn.access")
+    access.handlers.clear()
+    access.propagate = False
+    access.addHandler(logging.NullHandler())
+
+    error = logging.getLogger("uvicorn.error")
+    error.handlers.clear()
+    error.propagate = True
+    error.setLevel(logging.WARNING)
 
     _initialized = True
     logger = logging.getLogger("diy")
