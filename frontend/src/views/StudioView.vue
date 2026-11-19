@@ -1,8 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NConfigProvider, NInput, NModal, createDiscreteApi } from 'naive-ui'
 import { useStyleStore } from '../stores/style'
-import { exportZip, getLlmSettings, saveLlmSettings, testLlm, type LlmSettings } from '../api/style'
+import {
+  LLM_PROVIDERS,
+  exportZip,
+  getLlmSettings,
+  getProviderPreset,
+  inferLlmProvider,
+  saveLlmSettings,
+  testLlm,
+  type LlmProvider,
+  type LlmSettings,
+  type ReasoningEffort,
+} from '../api/style'
 import ChatPanel from '../components/ChatPanel.vue'
 import ArtifactPanel from '../components/ArtifactPanel.vue'
 import StylePreview from '../components/StylePreview.vue'
@@ -13,6 +24,99 @@ const tokenDrawerOpen = ref(false)
 const { message } = createDiscreteApi(['message'])
 
 const promptInput = ref('')
+
+// —— 双预览同步滚动 ——
+const baselineBox = ref<HTMLElement | null>(null)
+const newBox = ref<HTMLElement | null>(null)
+const syncTrack = ref<HTMLElement | null>(null)
+const syncState = ref({ ratio: 0, thumb: 100 })
+let syncing = false
+let dragging = false
+
+function clamp(value: number, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function maxScrollOf(el: HTMLElement | null) {
+  return el ? Math.max(0, el.scrollHeight - el.clientHeight) : 0
+}
+
+function updateThumb() {
+  const a = baselineBox.value
+  const b = newBox.value
+  const viewport = Math.max(a?.clientHeight ?? 0, b?.clientHeight ?? 0)
+  const content = Math.max(a?.scrollHeight ?? 0, b?.scrollHeight ?? 0)
+  syncState.value.thumb = content > 0
+    ? clamp(viewport / content * 100, 12, 100)
+    : 100
+}
+
+function syncFrom(source: 'baseline' | 'new') {
+  if (syncing) return
+  const a = baselineBox.value
+  const b = newBox.value
+  const src = source === 'baseline' ? a : b
+  const target = source === 'baseline' ? b : a
+  if (!src || !target) return
+
+  updateThumb()
+  const srcMax = maxScrollOf(src)
+  const targetMax = maxScrollOf(target)
+  const ratio = srcMax > 0 ? clamp(src.scrollTop / srcMax) : 0
+  syncState.value.ratio = ratio
+  syncing = true
+  target.scrollTop = ratio * targetMax
+  requestAnimationFrame(() => { syncing = false })
+}
+
+function applyScrollRatio(ratio: number) {
+  const next = clamp(ratio)
+  syncState.value.ratio = next
+  syncing = true
+  for (const box of [baselineBox.value, newBox.value]) {
+    if (box) box.scrollTop = next * maxScrollOf(box)
+  }
+  requestAnimationFrame(() => { syncing = false })
+}
+
+function applyTrackScroll(event: MouseEvent) {
+  const track = syncTrack.value
+  if (!track) return
+  const rect = track.getBoundingClientRect()
+  const thumbPx = Math.max(24, rect.height * syncState.value.thumb / 100)
+  const travel = Math.max(1, rect.height - thumbPx)
+  const ratio = (event.clientY - rect.top - thumbPx / 2) / travel
+  applyScrollRatio(ratio)
+}
+
+function stopDrag() {
+  dragging = false
+  window.removeEventListener('mousemove', onDrag)
+  window.removeEventListener('mouseup', stopDrag)
+}
+
+function onDrag(event: MouseEvent) {
+  if (dragging) applyTrackScroll(event)
+}
+
+function startDrag(event: MouseEvent) {
+  dragging = true
+  applyTrackScroll(event)
+  window.addEventListener('mousemove', onDrag)
+  window.addEventListener('mouseup', stopDrag)
+}
+
+function onTrackWheel(event: WheelEvent) {
+  event.preventDefault()
+  applyScrollRatio(syncState.value.ratio + event.deltaY / 900)
+}
+
+watch(() => store.pendingDiff, async () => {
+  await nextTick()
+  updateThumb()
+})
+
+onBeforeUnmount(stopDrag)
 
 // —— 存档 / 档案管理 ——
 const showSave = ref(false)
@@ -94,19 +198,39 @@ async function doUseBlank() {
 
 // —— 设置（左下角入口 · LLM 接入配置） ——
 const showSettings = ref(false)
-const llmCfg = ref<LlmSettings>({ base_url: '', model: '', key_masked: '', has_key: false, enabled: false })
+const llmCfg = ref<LlmSettings>({
+  provider: 'zhipu',
+  base_url: '', model: '', reasoning_effort: 'auto', key_masked: '', has_key: false, enabled: false,
+})
 const llmLoaded = ref(false)
 const keyInput = ref('')
 const llmTesting = ref(false)
 const llmTestResult = ref<{ ok: boolean; text: string } | null>(null)
 const llmSaving = ref(false)
+const providerPreset = computed(() => getProviderPreset(llmCfg.value.provider))
+const reasoningOptions = computed(() => providerPreset.value.reasoning_options)
+
+function applyProvider(provider: LlmProvider, fillModel = true) {
+  const preset = getProviderPreset(provider)
+  llmCfg.value.provider = provider
+  if (preset.base_url) llmCfg.value.base_url = preset.base_url
+  if (fillModel && preset.model) llmCfg.value.model = preset.model
+  const values = preset.reasoning_options.map(o => o.value)
+  if (!values.includes(llmCfg.value.reasoning_effort)) {
+    llmCfg.value.reasoning_effort = 'auto' as ReasoningEffort
+  }
+}
 
 async function openSettings() {
   showSettings.value = true
   llmTestResult.value = null
   keyInput.value = ''
   try {
-    llmCfg.value = await getLlmSettings()
+    const cfg = await getLlmSettings()
+    llmCfg.value = cfg
+    if (!cfg.provider) {
+      applyProvider(inferLlmProvider(cfg.base_url, cfg.model), false)
+    }
     llmLoaded.value = true
   } catch {
     message.error('读取设置失败')
@@ -132,8 +256,10 @@ async function doSaveLlm() {
   llmSaving.value = true
   try {
     llmCfg.value = await saveLlmSettings({
+      provider: llmCfg.value.provider,
       base_url: llmCfg.value.base_url,
       model: llmCfg.value.model,
+      reasoning_effort: llmCfg.value.reasoning_effort,
       api_key: keyInput.value,     // 空串 = 保留已存 key
     })
     keyInput.value = ''
@@ -237,13 +363,45 @@ const naiveTheme = {
               <div class="preview-split">
                 <div class="preview-col">
                   <span class="preview-tag">基准</span>
-                  <div class="preview-box">
-                    <StylePreview :css="store.pendingDiff.baselineCss" :html="store.pendingDiff.baselineHtml" />
+                  <div
+                    ref="baselineBox"
+                    class="preview-box"
+                    @scroll.passive="syncFrom('baseline')"
+                  >
+                    <StylePreview
+                      :css="store.pendingDiff.baselineCss"
+                      :html="store.pendingDiff.baselineHtml"
+                      auto-height
+                      @content-resized="updateThumb"
+                    />
                   </div>
                 </div>
+
+                <div
+                  ref="syncTrack"
+                  class="sync-scrollbar"
+                  title="拖动同步滚动两侧预览"
+                  @mousedown.prevent="startDrag"
+                  @wheel.prevent="onTrackWheel"
+                >
+                  <div
+                    class="sync-thumb"
+                    :style="{
+                      height: `${syncState.thumb}%`,
+                      top: `${syncState.ratio * (100 - syncState.thumb)}%`,
+                    }"
+                  ></div>
+                </div>
+
                 <div class="preview-col">
                   <span class="preview-tag is-new">新预览</span>
-                  <div class="preview-box"><StylePreview /></div>
+                  <div
+                    ref="newBox"
+                    class="preview-box"
+                    @scroll.passive="syncFrom('new')"
+                  >
+                    <StylePreview auto-height @content-resized="updateThumb" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -319,11 +477,20 @@ const naiveTheme = {
           </p>
 
           <div v-if="llmLoaded" class="settings-form">
+            <label class="fd-label">厂商 PROVIDER</label>
+            <select
+              v-model="llmCfg.provider"
+              class="fd-input reasoning-select"
+              @change="applyProvider(llmCfg.provider)"
+            >
+              <option v-for="p in LLM_PROVIDERS" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+
             <label class="fd-label">接口地址 BASE_URL</label>
-            <n-input v-model:value="llmCfg.base_url" size="small" placeholder="https://open.bigmodel.cn/api/paas/v4/chat/completions" />
+            <n-input v-model:value="llmCfg.base_url" size="small" placeholder="选择厂商后自动填入" />
 
             <label class="fd-label">模型 MODEL</label>
-            <n-input v-model:value="llmCfg.model" size="small" placeholder="glm-4-flash" />
+            <n-input v-model:value="llmCfg.model" size="small" placeholder="选择厂商后自动填入" />
 
             <label class="fd-label">API KEY</label>
             <n-input
@@ -332,6 +499,14 @@ const naiveTheme = {
               size="small"
               :placeholder="llmCfg.has_key ? `已配置（${llmCfg.key_masked}），留空保持不变` : '粘贴你的 key'"
             />
+
+            <label class="fd-label">思考强度 REASONING EFFORT</label>
+            <select v-model="llmCfg.reasoning_effort" class="fd-input reasoning-select">
+              <option v-for="opt in reasoningOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+            <div v-if="providerPreset.hint" class="settings-hint">{{ providerPreset.hint }}</div>
 
             <div v-if="llmTestResult" class="test-result" :class="llmTestResult.ok ? 'ok' : 'bad'">
               {{ llmTestResult.ok ? '✓ ' : '✗ ' }}{{ llmTestResult.text }}
@@ -460,6 +635,16 @@ const naiveTheme = {
   flex-direction: column;
   gap: 8px;
 }
+.reasoning-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.reasoning-select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+}
 .test-result {
   font-size: 12.5px;
   padding: 6px 10px;
@@ -523,8 +708,8 @@ const naiveTheme = {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+  gap: 8px;
   padding: 10px;
 }
 .preview-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -535,8 +720,29 @@ const naiveTheme = {
   min-height: 0;
   border: var(--fd-border);
   border-radius: var(--fd-r-md);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--fd-paper);
+  scrollbar-width: none;
+}
+.preview-box::-webkit-scrollbar { display: none; }
+.sync-scrollbar {
+  position: relative;
+  align-self: stretch;
+  margin-top: 22px;
+  border-radius: 999px;
+  background: var(--fd-accent-50);
+  border: 1px solid var(--fd-accent-100);
+  cursor: ns-resize;
+}
+.sync-thumb {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  min-height: 24px;
+  border-radius: 999px;
+  background: var(--fd-accent-400);
+  box-shadow: var(--fd-e1);
 }
 
 /* —— Token 抽屉 —— */

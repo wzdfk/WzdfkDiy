@@ -97,12 +97,121 @@ export const deleteArchive = (id: number) =>
 
 // ---------- LLM 设置 ----------
 
+export type LlmProvider = 'zhipu' | 'deepseek' | 'openai' | 'moonshot' | 'qwen' | 'custom'
+export type ReasoningEffort = 'auto' | 'none' | 'low' | 'medium' | 'high' | 'max'
+
 export interface LlmSettings {
+  provider: LlmProvider
   base_url: string
   model: string
+  reasoning_effort: ReasoningEffort
   key_masked: string
   has_key: boolean
   enabled: boolean
+}
+
+export interface ReasoningOption {
+  value: ReasoningEffort
+  label: string
+  accepted?: boolean
+  latency_ms?: number
+  error?: string
+}
+
+export interface ProviderPreset {
+  value: LlmProvider
+  label: string
+  base_url: string
+  model: string
+  reasoning_options: ReasoningOption[]
+  hint?: string
+}
+
+export const LLM_PROVIDERS: ProviderPreset[] = [
+  {
+    value: 'zhipu',
+    label: '智谱 GLM',
+    base_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+    model: 'glm-5.3-flash',
+    reasoning_options: [
+      { value: 'auto', label: '不指定（跟随模型默认）' },
+      { value: 'low', label: '低强度 low' },
+      { value: 'high', label: '高强度 high' },
+      { value: 'max', label: '最大强度 max' },
+    ],
+  },
+  {
+    value: 'deepseek',
+    label: 'DeepSeek',
+    base_url: 'https://api.deepseek.com/v1/chat/completions',
+    model: 'deepseek-chat',
+    reasoning_options: [
+      { value: 'auto', label: '不指定（跟随模型默认）' },
+      { value: 'none', label: '关闭思考 none' },
+      { value: 'low', label: '低强度 low' },
+      { value: 'high', label: '高强度 high' },
+      { value: 'max', label: '最大强度 max' },
+    ],
+  },
+  {
+    value: 'openai',
+    label: 'OpenAI / Azure OpenAI 兼容',
+    base_url: 'https://api.openai.com/v1/chat/completions',
+    model: 'gpt-5',
+    reasoning_options: [
+      { value: 'auto', label: '不指定（跟随模型默认）' },
+      { value: 'none', label: '极简 minimal' },
+      { value: 'low', label: '低强度 low' },
+      { value: 'medium', label: '中强度 medium' },
+      { value: 'high', label: '高强度 high' },
+      { value: 'max', label: '极高 xhigh' },
+    ],
+  },
+  {
+    value: 'moonshot',
+    label: 'Moonshot / Kimi',
+    base_url: 'https://api.moonshot.cn/v1/chat/completions',
+    model: 'moonshot-v1-8k',
+    reasoning_options: [{ value: 'auto', label: '不指定（跟随模型默认）' }],
+    hint: '未验证思考强度字段，默认不指定。',
+  },
+  {
+    value: 'qwen',
+    label: '通义千问 OpenAI 兼容',
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    model: 'qwen-plus',
+    reasoning_options: [{ value: 'auto', label: '不指定（跟随模型默认）' }],
+    hint: '未验证思考强度字段，默认不指定。',
+  },
+  {
+    value: 'custom',
+    label: '自定义 OpenAI 兼容',
+    base_url: '',
+    model: '',
+    reasoning_options: [{ value: 'auto', label: '不指定（跟随模型默认）' }],
+    hint: '自定义接口默认不指定思考强度。',
+  },
+]
+
+export function getProviderPreset(provider: LlmProvider): ProviderPreset {
+  return LLM_PROVIDERS.find(p => p.value === provider) ?? LLM_PROVIDERS[LLM_PROVIDERS.length - 1]
+}
+
+export function inferLlmProvider(baseUrl: string, model: string): LlmProvider {
+  const text = `${baseUrl} ${model}`.toLowerCase()
+  if (text.includes('bigmodel') || text.includes('zhipu') || text.includes('glm')) return 'zhipu'
+  if (text.includes('deepseek')) return 'deepseek'
+  if (text.includes('openai') || text.includes('azure')) return 'openai'
+  if (text.includes('moonshot') || text.includes('kimi')) return 'moonshot'
+  if (text.includes('dashscope') || text.includes('qwen')) return 'qwen'
+  return 'custom'
+}
+
+export interface ReasoningProbeResult {
+  ok: boolean
+  model?: string
+  options: ReasoningOption[]
+  error?: string
 }
 
 /** 读设置（key 掩码） */
@@ -110,8 +219,17 @@ export const getLlmSettings = () =>
   http.get<LlmSettings>('/settings/llm').then(r => r.data)
 
 /** 保存设置（api_key 空串 = 保留已存 key） */
-export const saveLlmSettings = (data: { base_url: string; model: string; api_key?: string }) =>
-  http.put<LlmSettings>('/settings/llm', data).then(r => r.data)
+export const saveLlmSettings = (data: {
+  provider: LlmProvider
+  base_url: string
+  model: string
+  api_key?: string
+  reasoning_effort?: ReasoningEffort
+}) => http.put<LlmSettings>('/settings/llm', data).then(r => r.data)
+
+/** 实测当前模型支持的思考强度 */
+export const probeReasoning = () =>
+  http.post<ReasoningProbeResult>('/settings/llm/probe-reasoning').then(r => r.data)
 
 /** 测试连接 → { ok, latency_ms?, sample?, error? } */
 export const testLlm = () =>

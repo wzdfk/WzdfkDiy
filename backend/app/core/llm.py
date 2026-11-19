@@ -38,6 +38,18 @@ _DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 _DEFAULT_MODEL = "glm-4-flash"
 _TIMEOUT = 60.0
 _ARTIFACT_TIMEOUT = 300.0
+_REASONING_EFFORTS = {"auto", "none", "low", "medium", "high", "max"}
+_PROVIDERS = {"zhipu", "deepseek", "openai", "moonshot", "qwen", "custom"}
+
+
+def _normalize_reasoning_effort(value: Any) -> str:
+    text = str(value or "auto").strip().lower()
+    return text if text in _REASONING_EFFORTS else "auto"
+
+
+def _normalize_provider(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in _PROVIDERS else ""
 
 # ---------- 运行时设置（界面可改，优先于 .env） ----------
 
@@ -60,20 +72,32 @@ def get_settings() -> dict[str, Any]:
     env_key = os.getenv("API_KEY", "")
     key = cfg.get("api_key") or env_key
     masked = (key[:6] + "****" + key[-4:]) if len(key) > 10 else ("已配置" if key else "")
+    base = cfg.get("base_url") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL
+    model = cfg.get("model") or _DEFAULT_MODEL
     return {
-        "base_url": cfg.get("base_url") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL,
-        "model": cfg.get("model") or _DEFAULT_MODEL,
+        "provider": _normalize_provider(cfg.get("provider")) or _provider_key(base, model),
+        "base_url": base,
+        "model": model,
+        "reasoning_effort": _normalize_reasoning_effort(cfg.get("reasoning_effort")),
         "key_masked": masked,
         "has_key": bool(key),
         "enabled": bool(key),
     }
 
 
-def save_settings(base_url: str, model: str, api_key: str | None = None) -> dict[str, Any]:
+def save_settings(
+    base_url: str,
+    model: str,
+    api_key: str | None = None,
+    reasoning_effort: str = "auto",
+    provider: str = "",
+) -> dict[str, Any]:
     """保存设置。api_key 为 None/空串 = 保留已存 key。"""
     cfg = _read_settings()
     cfg["base_url"] = (base_url or "").strip() or _DEFAULT_BASE_URL
     cfg["model"] = (model or "").strip() or _DEFAULT_MODEL
+    cfg["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
+    cfg["provider"] = _normalize_provider(provider) or _provider_key(cfg["base_url"], cfg["model"])
     if api_key:  # 非空才覆盖
         cfg["api_key"] = api_key.strip()
     _save_settings(cfg)
@@ -137,14 +161,46 @@ def _provider_key(base: str, model: str) -> str:
     return "openai"
 
 
+def _current_provider_key(base: str, model: str) -> str:
+    stored = _normalize_provider(_read_settings().get("provider"))
+    return stored or _provider_key(base, model)
+
+
 def _usage_stream_options(base: str, model: str) -> list[dict[str, bool]]:
     """不同供应商流式 usage 开关不同：智谱用 chunk_include_usage，OpenAI/DeepSeek 用 include_usage。"""
-    key = _provider_key(base, model)
+    key = _current_provider_key(base, model)
     if key == "zhipu":
         return [{"chunk_include_usage": True}, {"include_usage": True}, {}]
     if key == "deepseek":
         return [{"include_usage": True}, {"chunk_include_usage": True}, {}]
     return [{"include_usage": True}, {"chunk_include_usage": True}, {}]
+
+
+def _reasoning_payload(base: str, model: str, effort: str) -> dict[str, Any]:
+    """统一思考强度 → 各供应商请求参数。auto 表示不下发，跟随模型默认。"""
+    effort = _normalize_reasoning_effort(effort)
+    if effort == "auto":
+        return {}
+    key = _current_provider_key(base, model)
+    if key in ("zhipu", "deepseek"):
+        return {"reasoning_effort": effort}
+    if key == "openai":
+        mapped = {"none": "minimal", "low": "low", "medium": "medium", "high": "high", "max": "xhigh"}
+        return {"reasoning": {"effort": mapped.get(effort, "medium")}}
+    if key == "anthropic":
+        budget = {"none": 0, "low": 1024, "medium": 2048, "high": 4096, "max": 8192}
+        if effort == "none":
+            return {}
+        return {"thinking": {"type": "enabled", "budget_tokens": budget.get(effort, 2048)}}
+    if key == "gemini":
+        mapped = {"none": "low", "low": "low", "medium": "medium", "high": "high", "max": "high"}
+        return {"thinking_level": mapped.get(effort, "medium")}
+    return {"reasoning_effort": effort}
+
+
+def _current_reasoning_payload(base: str, model: str) -> dict[str, Any]:
+    effort = _normalize_reasoning_effort(_read_settings().get("reasoning_effort"))
+    return _reasoning_payload(base, model, effort)
 
 
 def normalize_usage(usage: Any, model: str = "", base: str = "") -> dict[str, Any]:
@@ -227,10 +283,16 @@ def raw_chat_with_usage(
                              "content": m["text"]})
     messages.append({"role": "user", "content": user})
 
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.4,
+    }
+    payload.update(_current_reasoning_payload(base, model))
     r = httpx.post(
         base,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": 0.4},
+        json=payload,
         timeout=timeout or _TIMEOUT,
     )
     r.raise_for_status()
@@ -273,6 +335,7 @@ async def _raw_chat_stream_once(
         "temperature": 0.4,
         "stream": True,
     }
+    payload.update(_current_reasoning_payload(base, model))
     if stream_options:
         payload["stream_options"] = stream_options
 
@@ -369,6 +432,66 @@ def test_connection() -> dict[str, Any]:
         return {"ok": True, "latency_ms": int((time.time() - t0) * 1000), "sample": text[:20]}
     except Exception as e:
         return {"ok": False, "error": f"{e.__class__.__name__}: {e}"[:300]}
+
+
+def probe_reasoning_options() -> dict[str, Any]:
+    """用当前 Key 实测各思考强度档位，返回可渲染选项。"""
+    base, key, model = _creds()
+    if not key:
+        return {"ok": False, "error": "未配置 API Key", "options": []}
+
+    labels = {
+        "auto": "不指定（跟随模型默认）",
+        "none": "关闭思考 / 最快",
+        "low": "低强度 / 快",
+        "medium": "中强度",
+        "high": "高强度",
+        "max": "最大强度 / 最慢",
+    }
+    options: list[dict[str, Any]] = [{
+        "value": "auto", "label": labels["auto"], "accepted": True, "latency_ms": 0,
+    }]
+
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    for effort in ["none", "low", "medium", "high", "max"]:
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "user", "content": "只回复 ok"}],
+            "temperature": 0,
+            "max_tokens": 8,
+        }
+        payload.update(_reasoning_payload(base, model, effort))
+        started = time.perf_counter()
+        try:
+            r = httpx.post(base, headers=headers, json=payload, timeout=20.0)
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            error = body.get("error") if isinstance(body, dict) else None
+            accepted = 200 <= r.status_code < 300 and not error
+            options.append({
+                "value": effort,
+                "label": labels[effort],
+                "accepted": accepted,
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "error": "" if accepted else _probe_error_text(r.status_code, error),
+            })
+        except Exception as e:
+            options.append({
+                "value": effort,
+                "label": labels[effort],
+                "accepted": False,
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "error": f"{e.__class__.__name__}: {e}"[:180],
+            })
+
+    return {"ok": True, "model": model, "options": options}
+
+
+def _probe_error_text(status: int, error: Any) -> str:
+    if isinstance(error, dict):
+        message = error.get("message") or error.get("msg") or str(error)
+    else:
+        message = str(error or "")
+    return f"HTTP {status}: {message}"[:180]
 
 
 # ---------- JSON 提取与路径校验 ----------
