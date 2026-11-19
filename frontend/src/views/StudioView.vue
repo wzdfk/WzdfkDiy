@@ -4,7 +4,7 @@ import { NButton, NConfigProvider, NInput, NModal, createDiscreteApi } from 'nai
 import { useStyleStore } from '../stores/style'
 import { exportZip, getLlmSettings, saveLlmSettings, testLlm, type LlmSettings } from '../api/style'
 import ChatPanel from '../components/ChatPanel.vue'
-import TokenPanel from '../components/TokenPanel.vue'
+import ArtifactPanel from '../components/ArtifactPanel.vue'
 import StylePreview from '../components/StylePreview.vue'
 
 const store = useStyleStore()
@@ -21,7 +21,7 @@ const saveName = ref('')
 const archivesLoading = ref(false)
 const BLANK_TEMPLATE_NAME = '空模板'
 const isBlankBaseline = computed(
-  () => !store.activeArchiveName && store.tokens?.meta.name === BLANK_TEMPLATE_NAME,
+  () => !store.activeArchiveName && store.bundle?.meta.name === BLANK_TEMPLATE_NAME,
 )
 const savePlaceholder = computed(() =>
   isBlankBaseline.value ? '空模板是内置基线，请输入你的风格名' : '档案名（同名覆盖）',
@@ -30,13 +30,13 @@ const savePlaceholder = computed(() =>
 onMounted(() => store.init())
 
 async function doExport() {
-  const name = store.tokens?.meta.name ?? 'style'
+  const name = store.bundle?.meta.name ?? 'style'
   await exportZip(`${name}.zip`)
-  message.success('三件套已导出：style.json + base.css + style.css + STYLE_PROMPT.md')
+  message.success('产物包已导出：manifest + Prompt + preview + CSS + 溯源文件')
 }
 
 function openSave() {
-  saveName.value = isBlankBaseline.value ? '' : (store.activeArchiveName ?? store.tokens?.meta.name ?? '')
+  saveName.value = isBlankBaseline.value ? '' : (store.activeArchiveName ?? store.bundle?.meta.name ?? '')
   showSave.value = true
 }
 
@@ -176,7 +176,7 @@ const naiveTheme = {
         <div class="brand">
           <span class="fd-label">UIDIY</span>
           <h1 class="fd-title" style="margin:0;">打造个人风格</h1>
-          <span v-if="store.tokens" class="style-name">{{ store.tokens.meta.name }}</span>
+          <span v-if="store.bundle" class="style-name">{{ store.bundle.meta.name }}</span>
         </div>
         <div class="define-row">
           <n-input
@@ -186,14 +186,16 @@ const naiveTheme = {
             style="width: 300px;"
             @keydown.enter="defineStyle"
           />
-          <n-button size="small" @click="defineStyle">定义风格</n-button>
+          <n-button size="small" @click="defineStyle">新建风格</n-button>
+        </div>
+        <div class="action-row">
           <n-button size="small" quaternary @click="openSave">存档</n-button>
           <n-button size="small" quaternary @click="openArchives">档案</n-button>
-          <n-button size="small" type="primary" @click="doExport">导出三件套</n-button>
+          <n-button size="small" type="primary" @click="doExport">导出产物包</n-button>
         </div>
       </header>
 
-      <!-- 主体：左对话 · 中预览 · 右 Token 面板 -->
+      <!-- 主体：左对话 · 中预览 · 右产物面板 -->
       <main class="body">
         <section class="left">
           <div class="left-card chat-card">
@@ -212,7 +214,7 @@ const naiveTheme = {
               quaternary
               circle
               size="small"
-              title="展开 Token 面板"
+              title="展开产物面板"
               @click="tokenDrawerOpen = true"
             >
               <template #icon>
@@ -235,7 +237,9 @@ const naiveTheme = {
               <div class="preview-split">
                 <div class="preview-col">
                   <span class="preview-tag">基准</span>
-                  <div class="preview-box"><StylePreview :css="store.pendingDiff.baselineCss" /></div>
+                  <div class="preview-box">
+                    <StylePreview :css="store.pendingDiff.baselineCss" :html="store.pendingDiff.baselineHtml" />
+                  </div>
                 </div>
                 <div class="preview-col">
                   <span class="preview-tag is-new">新预览</span>
@@ -250,10 +254,10 @@ const naiveTheme = {
         <section v-if="tokenDrawerOpen" class="right">
           <div class="right-card token-card">
             <div class="drawer-head">
-              <span class="fd-label">TOKENS · 维度面板</span>
+              <span class="fd-label">ARTIFACT · 产物查看器</span>
               <n-button size="tiny" quaternary @click="tokenDrawerOpen = false">收起 ›</n-button>
             </div>
-            <div class="token-body"><TokenPanel /></div>
+            <div class="token-body"><ArtifactPanel /></div>
           </div>
         </section>
       </main>
@@ -355,9 +359,9 @@ const naiveTheme = {
 
 /* —— 顶栏 —— */
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   padding: 12px 20px;
   background: var(--fd-surface);
@@ -368,6 +372,7 @@ const naiveTheme = {
   display: flex;
   align-items: baseline;
   gap: 12px;
+  min-width: 0;
 }
 .style-name {
   font-size: 12px;
@@ -379,8 +384,30 @@ const naiveTheme = {
 }
 .define-row {
   display: flex;
+  justify-self: center;
+  justify-content: center;
   gap: 10px;
   align-items: center;
+}
+.action-row {
+  display: flex;
+  justify-self: end;
+  gap: 10px;
+  align-items: center;
+}
+@media (max-width: 980px) {
+  .topbar {
+    grid-template-columns: 1fr auto;
+    row-gap: 10px;
+  }
+  .define-row {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .action-row {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 
 /* —— 主体 —— */

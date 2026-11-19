@@ -3,11 +3,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useStyleStore } from '../stores/style'
 import { buildPreviewDoc, STYLE_TAG_ID } from '../preview/previewDoc'
 
-const props = defineProps<{ css?: string }>()
+const props = defineProps<{ css?: string; html?: string }>()
 const store = useStyleStore()
 const iframe = ref<HTMLIFrameElement | null>(null)
 const ready = ref(false)
 const activeCss = computed(() => props.css ?? store.css)
+const activeHtml = computed(() => props.html ?? store.previewHtml)
 
 function injectCss() {
   const doc = iframe.value?.contentDocument
@@ -16,16 +17,24 @@ function injectCss() {
   if (tag) tag.textContent = activeCss.value
 }
 
+function rebuildDoc() {
+  const el = iframe.value
+  if (!el) return
+  ready.value = false
+  el.srcdoc = buildPreviewDoc(activeHtml.value)
+}
+
 onMounted(() => {
   const el = iframe.value
   if (!el) return
-  el.srcdoc = buildPreviewDoc()
   el.addEventListener('load', () => {
     ready.value = true
     injectCss()
   })
+  rebuildDoc()
 })
 
+watch(activeHtml, rebuildDoc)
 watch(activeCss, () => {
   if (ready.value) injectCss()
 })
@@ -35,7 +44,7 @@ watch(activeCss, () => {
   <div class="preview-shell">
     <div v-if="!ready || !activeCss" class="preview-loading">
       <span class="fd-label">LOADING</span>
-      <p>正在从后端加载生成的样式…</p>
+      <p>正在加载当前产物包…</p>
     </div>
     <iframe ref="iframe" class="preview-frame" title="风格预览"></iframe>
   </div>

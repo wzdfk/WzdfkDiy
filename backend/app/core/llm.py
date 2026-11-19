@@ -10,6 +10,7 @@ LLM 不可用/输出不合法时自动兜底回风格词典（dict_style），�
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -20,13 +21,23 @@ from typing import Any
 import httpx
 
 from . import dict_style
+from .bundle import (
+    StyleBundle,
+    append_history,
+    bundle_from_legacy_tokens,
+    diff_bundles,
+    normalize_bundle_payload,
+)
 from .tokens import ControlBox, StyleTokens, blank_default, fold_default
+
+logger = logging.getLogger(__name__)
 
 _SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "llm_settings.json"
 
 _DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 _DEFAULT_MODEL = "glm-4-flash"
 _TIMEOUT = 60.0
+_ARTIFACT_TIMEOUT = 300.0
 
 # ---------- 运行时设置（界面可改，优先于 .env） ----------
 
@@ -84,8 +95,130 @@ def enabled() -> bool:
     return bool(_creds()[1])
 
 
-def raw_chat(system: str, user: str, history: list[dict] | None = None) -> str:
-    """OpenAI 兼容 chat/completions 裸调用，返回 assistant 文本。失败抛异常。"""
+def _as_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return 0
+
+
+def _provider_name(base: str, model: str) -> str:
+    text = f"{base} {model}".lower()
+    if "bigmodel" in text or "zhipu" in text or "glm" in text:
+        return "智谱 GLM"
+    if "deepseek" in text:
+        return "DeepSeek"
+    if "anthropic" in text or "claude" in text:
+        return "Anthropic"
+    if "generativelanguage" in text or "gemini" in text:
+        return "Google Gemini"
+    if "moonshot" in text or "kimi" in text:
+        return "Moonshot"
+    if "dashscope" in text or "qwen" in text or "tongyi" in text:
+        return "通义千问"
+    if "openai" in text:
+        return "OpenAI"
+    return "OpenAI 兼容接口"
+
+
+def _provider_key(base: str, model: str) -> str:
+    text = f"{base} {model}".lower()
+    if "bigmodel" in text or "zhipu" in text or "glm" in text:
+        return "zhipu"
+    if "deepseek" in text:
+        return "deepseek"
+    if "anthropic" in text or "claude" in text:
+        return "anthropic"
+    if "generativelanguage" in text or "gemini" in text:
+        return "gemini"
+    return "openai"
+
+
+def _usage_stream_options(base: str, model: str) -> list[dict[str, bool]]:
+    """不同供应商流式 usage 开关不同：智谱用 chunk_include_usage，OpenAI/DeepSeek 用 include_usage。"""
+    key = _provider_key(base, model)
+    if key == "zhipu":
+        return [{"chunk_include_usage": True}, {"include_usage": True}, {}]
+    if key == "deepseek":
+        return [{"include_usage": True}, {"chunk_include_usage": True}, {}]
+    return [{"include_usage": True}, {"chunk_include_usage": True}, {}]
+
+
+def normalize_usage(usage: Any, model: str = "", base: str = "") -> dict[str, Any]:
+    """把不同供应商的 usage 归一到统一结构。"""
+    available = isinstance(usage, dict) and bool(usage)
+    usage = usage if available else {}
+    if isinstance(usage.get("usageMetadata"), dict):
+        usage = usage["usageMetadata"]
+        available = bool(usage)
+    prompt_details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+    completion_details = usage.get("completion_tokens_details") if isinstance(usage.get("completion_tokens_details"), dict) else {}
+
+    prompt_tokens = _as_int(
+        usage.get("prompt_tokens")
+        or usage.get("input_tokens")
+        or usage.get("promptTokenCount")
+    )
+    completion_tokens = _as_int(
+        usage.get("completion_tokens")
+        or usage.get("output_tokens")
+        or usage.get("candidatesTokenCount")
+    )
+    total_tokens = _as_int(
+        usage.get("total_tokens")
+        or usage.get("totalTokenCount")
+        or (prompt_tokens + completion_tokens if available else 0)
+    )
+    cached_tokens = _as_int(
+        prompt_details.get("cached_tokens")
+        or prompt_details.get("cache_read_input_tokens")
+        or usage.get("prompt_cache_hit_tokens")
+        or usage.get("cache_read_input_tokens")
+        or usage.get("cached_tokens")
+        or usage.get("cachedContentTokenCount")
+    )
+    cache_miss_tokens = _as_int(
+        usage.get("prompt_cache_miss_tokens")
+        or (prompt_tokens - cached_tokens if available and prompt_tokens >= cached_tokens else 0)
+    )
+    cache_write_tokens = _as_int(
+        prompt_details.get("cache_creation_input_tokens")
+        or prompt_details.get("cache_write_tokens")
+        or usage.get("cache_creation_input_tokens")
+        or usage.get("cache_write_tokens")
+    )
+    reasoning_tokens = _as_int(
+        completion_details.get("reasoning_tokens")
+        or usage.get("reasoning_tokens")
+        or usage.get("thoughtsTokenCount")
+    )
+
+    return {
+        "available": available,
+        "provider": _provider_name(base, model),
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_write_tokens": cache_write_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "raw": usage if available else None,
+    }
+
+
+def raw_chat_with_usage(
+    system: str,
+    user: str,
+    history: list[dict] | None = None,
+    timeout: float | None = None,
+) -> tuple[str, dict[str, Any], int]:
+    """OpenAI 兼容非流式调用，返回 (文本, usage, 耗时ms)。失败抛异常。"""
+    started = time.perf_counter()
     base, key, model = _creds()
     messages: list[dict] = [{"role": "system", "content": system}]
     for m in (history or []):
@@ -98,21 +231,35 @@ def raw_chat(system: str, user: str, history: list[dict] | None = None) -> str:
         base,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json={"model": model, "messages": messages, "temperature": 0.4},
-        timeout=_TIMEOUT,
+        timeout=timeout or _TIMEOUT,
     )
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    data = r.json()
+    text = data["choices"][0]["message"]["content"]
+    usage = normalize_usage(data.get("usage") or data.get("usageMetadata"), model, base)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    return text, usage, duration_ms
 
 
-async def raw_chat_stream(system: str, user: str, history: list[dict] | None = None):
-    """OpenAI 兼容流式调用； yields ('reasoning'|'content', text)。
+def raw_chat(
+    system: str,
+    user: str,
+    history: list[dict] | None = None,
+    timeout: float | None = None,
+) -> str:
+    """兼容旧调用：只返回 assistant 文本。"""
+    text, _usage, _duration_ms = raw_chat_with_usage(system, user, history, timeout)
+    return text
 
-    若供应商提供 reasoning_content / reasoning 字段，会单独作为 reasoning 流输出；
-    没有则不伪造模型思考，只输出 content 流。
-    """
+
+async def _raw_chat_stream_once(
+    system: str,
+    user: str,
+    history: list[dict] | None,
+    timeout: float | None,
+    stream_options: dict[str, bool] | None,
+):
     base, key, model = _creds()
-    if not key:
-        raise RuntimeError("未配置 API Key")
     messages: list[dict] = [{"role": "system", "content": system}]
     for m in (history or []):
         if m.get("role") in ("user", "bot") and m.get("text"):
@@ -120,9 +267,18 @@ async def raw_chat_stream(system: str, user: str, history: list[dict] | None = N
                              "content": m["text"]})
     messages.append({"role": "user", "content": user})
 
-    payload = {"model": model, "messages": messages, "temperature": 0.4, "stream": True}
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.4,
+        "stream": True,
+    }
+    if stream_options:
+        payload["stream_options"] = stream_options
+
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    usage: dict[str, Any] | None = None
+    async with httpx.AsyncClient(timeout=timeout or _TIMEOUT) as client:
         async with client.stream("POST", base, headers=headers, json=payload) as r:
             r.raise_for_status()
             async for line in r.aiter_lines():
@@ -135,6 +291,11 @@ async def raw_chat_stream(system: str, user: str, history: list[dict] | None = N
                     obj = json.loads(data)
                 except Exception:
                     continue
+
+                obj_usage = obj.get("usage") or obj.get("usageMetadata")
+                if obj_usage:
+                    usage = normalize_usage(obj_usage, model, base)
+
                 try:
                     delta = obj["choices"][0]["delta"]
                 except Exception:
@@ -145,6 +306,40 @@ async def raw_chat_stream(system: str, user: str, history: list[dict] | None = N
                     yield "reasoning", reasoning
                 if content:
                     yield "content", content
+
+    if usage is not None:
+        yield "usage", usage
+
+
+async def raw_chat_stream(
+    system: str,
+    user: str,
+    history: list[dict] | None = None,
+    timeout: float | None = None,
+):
+    """OpenAI 兼容流式调用； yields ('reasoning'|'content'|'usage', text/dict)。
+
+    智谱使用 chunk_include_usage；OpenAI/DeepSeek 使用 include_usage。
+    若候选参数不被支持导致 400，自动尝试下一组，最后降级为普通流式。
+    """
+    base, key, model = _creds()
+    if not key:
+        raise RuntimeError("未配置 API Key")
+
+    last_error: Exception | None = None
+    for options in _usage_stream_options(base, model):
+        try:
+            async for item in _raw_chat_stream_once(system, user, history, timeout, options or None):
+                yield item
+            return
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 400:
+                raise
+            last_error = e
+            logger.warning("流式 usage 参数 %s 不被接受，尝试下一组", options)
+            continue
+    if last_error:
+        raise last_error
 
 
 _REVERSE_SYSTEM = """你是 UI 风格复原提示词生成器。读取 StyleTokens JSON，输出一段中文提示词，让另一个设计助手据此重建同款风格。
@@ -353,10 +548,10 @@ def _tokens_from_rewrite_payload(data: dict) -> StyleTokens:
     """把 rewrite 模式的 tokens 片段合并到空模板并校验。"""
     payload = data.get("tokens") if isinstance(data.get("tokens"), dict) else data
     base = blank_default()
-    merged = _deep_merge(base.model_dump(), payload)
+    merged = _deep_merge(base.model_dump(), payload)    # type: ignore
     merged["schemaVersion"] = "1.0"
     merged["prefix"] = base.prefix
-    s500 = payload.get("color", {}).get("accent", {}).get("s500")
+    s500 = payload.get("color", {}).get("accent", {}).get("s500") # type: ignore
     if isinstance(s500, str) and _HEX.match(s500):
         merged["color"]["accent"] = _derive_scale(s500)
     return StyleTokens.model_validate(merged)
@@ -397,7 +592,10 @@ def _decide_mode(message: str, data: dict) -> str:
     mode = str(data.get("mode") or "").strip().lower()
     if mode in ("rewrite", "adjust"):
         return mode
-    return "rewrite" if re.search(r"做|改成|换成|换个|风格|工业|极简|赛博|复古|未来|科技|拟物", message) else "adjust"
+    return "rewrite" if re.search(
+        r"做|改成|换成|换个|风格|工业|极简|赛博|复古|未来|科技|拟物|布局|排版|重新排|组件展示",
+        message,
+    ) else "adjust"
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -494,7 +692,9 @@ def chat_diff(
         raw = raw_chat(_CHAT_SYSTEM, user, history=history)
         data = _extract_json(raw)
         reply = str(data.get("reply") or "").strip()
-        if _decide_mode(message, data) == "rewrite":
+        mode = _decide_mode(message, data)
+        logger.info("LLM 判定模式=%s message=%r", mode, message[:60])
+        if mode == "rewrite":
             nt = _tokens_from_rewrite_payload(data)
             return nt, _diff_tokens(tokens, nt), reply or f"已重写为「{message.strip()}」对应的完整风格。"
         changes = data.get("changes", [])
@@ -543,7 +743,10 @@ async def chat_diff_stream(
             f"空模板基底（rewrite 用）：\n{blank_default().model_dump_json(indent=2)}\n\n"
             f"用户消息：{message}"
         )
-        async for kind, text in raw_chat_stream(_CHAT_SYSTEM, user, history=history):
+        async for kind, chunk in raw_chat_stream(_CHAT_SYSTEM, user, history=history):
+            if kind == "usage":
+                continue
+            text = chunk if isinstance(chunk, str) else ""
             if kind == "reasoning":
                 reasoning += text
                 yield {"type": "reasoning", "delta": text}
@@ -565,6 +768,7 @@ async def chat_diff_stream(
         data = _extract_json(buf)
         mode = _decide_mode(message, data)
         reply = str(data.get("reply") or "").strip()
+        logger.info("LLM 判定模式=%s message=%r", mode, message[:60])
         yield {
             "type": "thought", "stage": "organizing",
             "thought": f"LLM 判定模式：{'重写基底 rewrite' if mode == 'rewrite' else '增量调整 adjust'}",
@@ -654,3 +858,256 @@ def _stub_parse(text: str) -> StyleTokens:
     if re.search(r"俏皮|活泼", text):
         tokens.motion.hover = "tilt"
     return tokens
+
+
+# ---------- V2 自由产物包：生成阶段只限制输出位置，不限制视觉发挥 ----------
+
+_FREE_ARTIFACT_SYSTEM = """你是 UI 风格生成与改造助手。你的任务不是填写字段表，而是直接产出一套完整风格包。
+只输出一个 JSON 对象，不要解释，不要代码围栏。
+
+JSON 字段固定如下：
+{
+  "meta": {"name":"风格名≤12字","version":"1.0","note":"一句话风格要点"},
+  "reply":"给用户的一句话说明",
+  "style_prompt":"一段可复刻该风格的中文提示词，必须覆盖颜色、材质/纹理、背景层、边框、投影、字体、动效、展示结构",
+  "preview_html":"用于展示该风格的完整 HTML 片段；rewrite 时自主设计布局，adjust 时原样保留上一版布局",
+  "base_css":"基础 CSS，可包含任意 :root 变量、reset、字体、背景层",
+  "style_css":"组件与视觉 CSS，可包含任意渐变、纹理、伪元素、动画、 inset shadow、状态灯、装饰件",
+  "semantic_diff":[
+    {"kind":"visual","path":"材质/背景/字体等语义维度","from":"旧值或空","to":"新值","reason":"为什么改"}
+  ]
+}
+
+硬性要求：
+1. 每次都输出完整产物；不要输出 tokens、changes、path 白名单或字段映射。
+2. base_css、style_css 的视觉内容完全自由；不要为了适配任何内部 schema 而简化视觉。
+3. style_prompt 必须足够具体，让另一个助手只凭它就能复刻同款视觉 DNA。
+4. preview_html 展示规则：
+   - 用户消息会标注 [MODE: rewrite] 或 [MODE: adjust]。
+   - rewrite（首次定义 / 整体换风格）：布局由你自主决定，但必须展示五个核心组件用于验证视觉 DNA：Button、Card、Input、Toast、Dropdown；可以附 Badge & Link。它们只是风格样板，不代表风格被组件绑定。
+   - adjust（微调）：原样保留上一版 preview_html 的 HTML 结构与布局，不要新增、删除、重排组件；只改 CSS、Prompt、reply 和 semantic_diff。除非用户明确要求改布局，否则绝不改布局。
+5. reply 只描述本次真实写入产物的变化，不要承诺未写进 CSS/HTML 的效果。
+6. 用户消息里的「场景/载体/风格/色彩/材质/密度/字体：」前缀是表达辅助，不是硬约束；如果与「用户补充」冲突，以用户补充为准。"""
+
+
+def _artifact_context(bundle: StyleBundle, mode: str = "adjust") -> str:
+    mode = "rewrite" if mode == "rewrite" else "adjust"
+    mode_note = (
+        "[MODE: rewrite] 首次定义或整体重写：可自主设计 preview_html 布局，但必须展示五个核心组件样板。"
+        if mode == "rewrite"
+        else "[MODE: adjust] 微调：必须原样保留当前 preview_html 的结构与布局，只调整视觉产物。"
+    )
+    return (
+        f"{mode_note}\n\n"
+        f"当前产物包：\n{bundle.model_dump_json(indent=2)}\n\n"
+        "注意：当前产物包只作为上下文。rewrite 可重写所有文件；adjust 不允许改 preview.html 布局。"
+    )
+
+
+def _source_meta() -> tuple[str, str]:
+    base, _key, model = _creds()
+    return model, base
+
+
+def parse_prompt_bundle(prompt: str, baseline: StyleBundle | None = None) -> StyleBundle:
+    """用户提示词 → V2 自由产物包。失败时保留传入基线，不回退 V1。"""
+    model, base = _source_meta()
+
+    def failed_bundle(reply: str) -> StyleBundle:
+        failed = (baseline or StyleBundle()).model_copy(deep=True)
+        failed.reply = reply
+        failed.source.prompt = prompt
+        failed.source.model = model
+        failed.source.base_url = base
+        append_history(failed, "user", prompt)
+        append_history(failed, "assistant", reply)
+        return failed
+
+    if not enabled():
+        return failed_bundle("未配置模型，当前产物包保持不变。")
+    try:
+        raw, usage, duration_ms = raw_chat_with_usage(
+            _FREE_ARTIFACT_SYSTEM,
+            f"[MODE: rewrite]\n用户要求：\n{prompt}\n\n请输出完整风格产物包。",
+            timeout=_ARTIFACT_TIMEOUT,
+        )
+        data = _extract_json(raw)
+        bundle = normalize_bundle_payload(
+            data,
+            previous=None,
+            source_prompt=prompt,
+            raw_response=raw,
+            model=model,
+            base_url=base,
+            usage=usage,
+            duration_ms=duration_ms,
+        )
+        logger.info("首次生成完成 usage=%s duration_ms=%s", usage, duration_ms)
+        append_history(bundle, "user", prompt)
+        append_history(bundle, "assistant", bundle.reply or f"已生成风格「{bundle.meta.name}」。")
+        return bundle
+    except Exception:
+        logger.exception("自由产物生成失败，保留当前产物包")
+        return failed_bundle("本轮模型输出不可用，当前产物包保持不变。")
+
+
+def chat_bundle(
+    bundle: StyleBundle,
+    message: str,
+    history: list[dict] | None = None,
+    mode: str = "adjust",
+) -> tuple[StyleBundle, list[dict], str]:
+    """多轮对话 → 完整 V2 产物包。mode=rewrite 时允许重排 preview.html。"""
+    model, base = _source_meta()
+    if not enabled():
+        reply = "未配置模型，当前产物包保持不变。"
+        append_history(bundle, "user", message)
+        append_history(bundle, "assistant", reply)
+        return bundle, [], reply
+    try:
+        raw, usage, duration_ms = raw_chat_with_usage(
+            _FREE_ARTIFACT_SYSTEM,
+            f"{_artifact_context(bundle, mode)}\n\n用户消息：{message}",
+            history=history,
+            timeout=_ARTIFACT_TIMEOUT,
+        )
+        data = _extract_json(raw)
+        reply = str(data.get("reply") or "").strip() or f"已按「{message.strip()}」更新完整风格包。"
+        next_bundle = normalize_bundle_payload(
+            data,
+            previous=bundle,
+            source_prompt=message,
+            raw_response=raw,
+            model=model,
+            base_url=base,
+            preserve_preview_html=(mode != "rewrite"),
+            usage=usage,
+            duration_ms=duration_ms,
+        )
+        next_bundle.reply = reply
+        append_history(next_bundle, "user", message)
+        append_history(next_bundle, "assistant", reply)
+        logger.info("对话完成 mode=%s usage=%s duration_ms=%s", mode, usage, duration_ms)
+        return next_bundle, diff_bundles(bundle, next_bundle), reply
+    except Exception:
+        logger.exception("自由产物对话失败，保留当前产物包")
+        reply = "本轮模型输出不可用，当前产物包保持不变。"
+        append_history(bundle, "user", message)
+        append_history(bundle, "assistant", reply)
+        return bundle, [], reply
+
+
+async def chat_bundle_stream(
+    bundle: StyleBundle,
+    message: str,
+    history: list[dict] | None = None,
+    mode: str = "adjust",
+):
+    """SSE 版 V2 产物包生成。mode=rewrite 时允许重排 preview.html。"""
+    started = time.perf_counter()
+    model, base = _source_meta()
+    usage: dict[str, Any] | None = None
+    yield {"type": "stage", "stage": "thinking", "label": "思考中"}
+    yield {
+        "type": "thought", "stage": "thinking",
+        "thought": f"读取当前产物「{bundle.meta.name}」，用户要求：{message.strip()}",
+    }
+    yield {
+        "type": "thought", "stage": "thinking",
+        "thought": ("重写模式：preview.html 布局自主决定，但需展示五个核心组件。"
+                    if mode == "rewrite" else "微调模式：保留 preview.html 布局，只调整视觉产物。"),
+    }
+
+    if not enabled():
+        reply = "未配置模型，当前产物包保持不变。"
+        append_history(bundle, "user", message)
+        append_history(bundle, "assistant", reply)
+        yield {"type": "stage", "stage": "done", "label": "完成"}
+        yield {
+            "type": "done", "mode": "artifact", "bundle": bundle.model_dump(mode="json"),
+            "diff": [], "reply": reply,
+            "usage": normalize_usage(None, model, base),
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        }
+        return
+
+    buf = ""
+    reasoning = ""
+    try:
+        yield {"type": "stage", "stage": "generating", "label": "模型输出"}
+        async for kind, chunk in raw_chat_stream(
+            _FREE_ARTIFACT_SYSTEM,
+            f"{_artifact_context(bundle, mode)}\n\n用户消息：{message}",
+            history=history,
+            timeout=_ARTIFACT_TIMEOUT,
+        ):
+            if kind == "usage":
+                usage = chunk if isinstance(chunk, dict) else None
+                if usage is not None:
+                    yield {"type": "usage", "usage": usage}
+                continue
+            text = chunk if isinstance(chunk, str) else ""
+            if kind == "reasoning":
+                reasoning += text
+                yield {"type": "reasoning", "delta": text}
+            else:
+                buf += text
+                yield {"type": "delta", "delta": text}
+
+        yield {"type": "stage", "stage": "organizing", "label": "整理中"}
+        yield {
+            "type": "thought", "stage": "organizing",
+            "thought": f"收到模型输出 {len(buf)} 字符，正在写入固定产物包结构。",
+        }
+        if reasoning:
+            yield {
+                "type": "thought", "stage": "organizing",
+                "thought": f"供应商额外返回 {len(reasoning)} 字符推理摘要，已单独展示。",
+            }
+
+        data = _extract_json(buf)
+        reply = str(data.get("reply") or "").strip() or f"已按「{message.strip()}」更新完整风格包。"
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        usage = usage or normalize_usage(None, model, base)
+        next_bundle = normalize_bundle_payload(
+            data,
+            previous=bundle,
+            source_prompt=message,
+            raw_response=buf,
+            model=model,
+            base_url=base,
+            preserve_preview_html=(mode != "rewrite"),
+            usage=usage,
+            duration_ms=duration_ms,
+        )
+        next_bundle.reply = reply
+        append_history(next_bundle, "user", message)
+        append_history(next_bundle, "assistant", reply)
+        diff = diff_bundles(bundle, next_bundle)
+        logger.info("流式生成完成 mode=%s usage=%s duration_ms=%s", mode, usage, duration_ms)
+
+        yield {"type": "stage", "stage": "done", "label": "完成"}
+        yield {
+            "type": "done", "mode": "artifact",
+            "bundle": next_bundle.model_dump(mode="json"),
+            "diff": diff,
+            "reply": reply,
+            "usage": usage,
+            "duration_ms": duration_ms,
+        }
+    except Exception as e:
+        logger.exception("自由产物流式生成失败")
+        yield {
+            "type": "thought", "stage": "organizing",
+            "thought": f"模型输出不可用（{e.__class__.__name__}），保留当前产物包。",
+        }
+        reply = "本轮模型输出不可用，当前产物包保持不变。"
+        append_history(bundle, "user", message)
+        append_history(bundle, "assistant", reply)
+        yield {"type": "stage", "stage": "done", "label": "完成"}
+        yield {
+            "type": "done", "mode": "artifact", "bundle": bundle.model_dump(mode="json"),
+            "diff": [], "reply": reply,
+            "usage": usage or normalize_usage(None, model, base),
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        }

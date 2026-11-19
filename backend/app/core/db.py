@@ -14,6 +14,7 @@ from urllib.parse import quote_plus
 from sqlalchemy import String, Text, create_engine, delete, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
+from .bundle import StyleBundle, bundle_from_legacy_tokens, extract_accent_hint
 from .tokens import StyleTokens
 
 _engine = None
@@ -66,13 +67,13 @@ def get_engine():
 # ---------- CRUD ----------
 
 
-def save_archive(name: str, tokens: StyleTokens) -> int:
-    """按名字 upsert：同名覆盖，返回档案 id。"""
+def save_archive(name: str, bundle: StyleBundle) -> int:
+    """按名字 upsert：tokens_json 列现在存 V2 bundle JSON。"""
     with Session(get_engine()) as s:
         row = s.execute(
             select(StyleArchive).where(StyleArchive.name == name)
         ).scalar_one_or_none()
-        payload = tokens.model_dump_json()
+        payload = bundle.model_dump_json()
         if row is None:
             row = StyleArchive(name=name, tokens_json=payload)
             s.add(row)
@@ -91,7 +92,12 @@ def list_archives() -> list[dict]:
         out: list[dict] = []
         for r in rows:
             try:
-                accent = json.loads(r.tokens_json).get("color", {}).get("accent", {}).get("s500", "")
+                data = json.loads(r.tokens_json)
+                if data.get("schemaVersion") == "2.0":
+                    bundle = StyleBundle.model_validate(data)
+                    accent = extract_accent_hint(bundle)
+                else:
+                    accent = data.get("color", {}).get("accent", {}).get("s500", "")
             except Exception:
                 accent = ""
             out.append({
@@ -103,13 +109,17 @@ def list_archives() -> list[dict]:
         return out
 
 
-def load_archive(archive_id: int) -> tuple[StyleTokens, str]:
-    """按 id 取档案 → (StyleTokens, 档案名)。不存在抛 KeyError。"""
+def load_archive(archive_id: int) -> tuple[StyleBundle, str]:
+    """按 id 取档案 → (StyleBundle, 档案名)；旧 V1 tokens 自动转 V2。"""
     with Session(get_engine()) as s:
         row = s.get(StyleArchive, archive_id)
         if row is None:
             raise KeyError(f"档案 #{archive_id} 不存在")
-        return StyleTokens.model_validate_json(row.tokens_json), row.name
+        data = json.loads(row.tokens_json)
+        if data.get("schemaVersion") == "2.0":
+            return StyleBundle.model_validate(data), row.name
+        legacy = StyleTokens.model_validate(data)
+        return bundle_from_legacy_tokens(legacy, f"旧档案：{row.name}"), row.name
 
 
 def delete_archive(archive_id: int) -> None:

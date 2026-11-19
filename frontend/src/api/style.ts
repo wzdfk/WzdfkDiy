@@ -1,28 +1,31 @@
 import axios from 'axios'
-import type { ChatStreamEvent, StyleTokens } from '../types/style'
+import type { ArtifactDiffItem, ChatStreamEvent, StyleBundle, StyleTokens } from '../types/style'
 
-const http = axios.create({ baseURL: '/api', timeout: 90000 })  // LLM 调用放宽到 90s
+const http = axios.create({ baseURL: '/api', timeout: 300000 })  // 产物包生成输出较大，放宽到 5 分钟
 
-/** 当前风格档案 */
-export const fetchCurrent = () => http.get<StyleTokens>('/style/current').then(r => r.data)
+/** 当前自由产物包 */
+export const fetchCurrent = () => http.get<StyleBundle>('/style/current').then(r => r.data)
 
-/** 覆盖当前档案（面板改动后同步后端会话） */
-export const saveCurrent = (tokens: StyleTokens) => http.post('/style/current', tokens)
+/** 覆盖当前产物包（兼容旧调用） */
+export const saveCurrent = (bundle: StyleBundle | StyleTokens) => http.post('/style/current', bundle)
 
-/** 预览用真实生成 CSS（所见即所导） */
+/** 预览用真实产物：CSS + HTML */
 export const fetchPreviewCss = () =>
-  http.get<{ css: string }>('/style/preview-css').then(r => r.data.css)
+  http.get<{ css: string; preview_html: string }>('/style/preview-css').then(r => ({
+    css: r.data.css,
+    previewHtml: r.data.preview_html,
+  }))
 
-/** 提示词 → 初始风格（V0 词典解析，V1 走 LLM） */
+/** 提示词 → 完整自由产物包 */
 export const parsePrompt = (prompt: string) =>
-  http.post<StyleTokens>('/style/parse', { prompt }).then(r => r.data)
+  http.post<StyleBundle>('/style/parse', { prompt }).then(r => r.data)
 
-/** 对话优化 → { tokens, diff, reply }（history 供后端 LLM 上下文，V1 用） */
+/** 对话优化 → { bundle, diff, reply } */
 export const chat = (
   message: string,
   history: { role: string; text: string }[] = [],
 ) =>
-  http.post<{ tokens: StyleTokens; diff: { path: string; from: string | number; to: string | number; reason: string }[]; reply: string }>(
+  http.post<{ bundle: StyleBundle; diff: ArtifactDiffItem[]; reply: string }>(
     '/style/chat', { message, history },
   ).then(r => r.data)
 
@@ -31,11 +34,14 @@ export async function chatStream(
   message: string,
   history: { role: string; text: string }[],
   onEvent: (event: ChatStreamEvent) => void,
+  mode?: 'rewrite' | 'adjust',
+  signal?: AbortSignal,
 ) {
   const res = await fetch('/api/style/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify(mode ? { message, history, mode } : { message, history }),
+    signal,
   })
   if (!res.ok || !res.body) throw new Error(`SSE 失败: ${res.status}`)
 
@@ -67,9 +73,9 @@ export async function chatStream(
   if (buffer.trim()) emit(buffer)
 }
 
-/** 撤销最近一次改动 → { ok, tokens, error? } */
+/** 撤销最近一次改动 → { ok, bundle, error? } */
 export const undo = () =>
-  http.post<{ ok: boolean; tokens: StyleTokens; error?: string }>('/style/undo').then(r => r.data)
+  http.post<{ ok: boolean; bundle: StyleBundle; error?: string }>('/style/undo').then(r => r.data)
 
 /** 当前档案存入 MySQL（同名覆盖）→ { ok, id, name } */
 export const saveArchive = (name: string) =>
@@ -81,9 +87,9 @@ export const listArchives = () =>
     '/style/archives',
   ).then(r => r.data)
 
-/** 加载档案为当前风格 → { ok, tokens } */
+/** 加载档案为当前产物包 → { ok, bundle } */
 export const loadArchive = (id: number) =>
-  http.post<{ ok: boolean; tokens: StyleTokens; error?: string }>(`/style/archives/${id}/load`).then(r => r.data)
+  http.post<{ ok: boolean; bundle: StyleBundle; error?: string }>(`/style/archives/${id}/load`).then(r => r.data)
 
 /** 删除档案 → { ok } */
 export const deleteArchive = (id: number) =>
@@ -113,13 +119,13 @@ export const testLlm = () =>
     '/settings/llm/test',
   ).then(r => r.data)
 
-/** 重置为系统默认风格 */
-export const resetStyle = () => http.post<StyleTokens>('/style/reset').then(r => r.data)
+/** 重置为系统默认产物包 */
+export const resetStyle = () => http.post<StyleBundle>('/style/reset').then(r => r.data)
 
-/** 切换到零装饰空模板 */
-export const useBlankTemplate = () => http.post<StyleTokens>('/style/blank').then(r => r.data)
+/** 切换到零装饰产物包基线 */
+export const useBlankTemplate = () => http.post<StyleBundle>('/style/blank').then(r => r.data)
 
-/** 导出三件套 zip */
+/** 导出固定结构产物包 zip */
 export async function exportZip(fileName: string): Promise<void> {
   const res = await http.post('/style/export', null, { responseType: 'blob' })
   const url = URL.createObjectURL(res.data as Blob)

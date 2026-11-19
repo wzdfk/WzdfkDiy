@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref, toRaw } from 'vue'
+import { ref } from 'vue'
 import * as api from '../api/style'
-import type { ChatMessage, DiffItem, StyleTokens } from '../types/style'
+import type { ArtifactDiffItem, ChatMessage, StyleBundle, StyleTokens, TokenUsage } from '../types/style'
 
 export interface ArchiveItem {
   id: number
@@ -10,31 +10,66 @@ export interface ArchiveItem {
   updated_at: string
 }
 
-/** 一轮对话改动的可视化对比：基准 CSS + 本轮 diff */
+/** 一轮产物包改动的可视化对比 */
 export interface PendingDiff {
   baselineCss: string
-  diff: DiffItem[]
+  baselineHtml: string
+  diff: ArtifactDiffItem[]
   reply: string
 }
 
 /**
- * 风格 tokens —— 全局唯一事实源。
- * 预览 iframe 加载的就是后端按这份 tokens 生成的真实 CSS。
+ * V2 事实源：完整自由产物包。
+ * CSS / HTML / Prompt 都由后端产物包提供，前端只负责展示和交互。
  */
 export const useStyleStore = defineStore('style', () => {
-  const tokens = ref<StyleTokens | null>(null)
+  const bundle = ref<StyleBundle | null>(null)
+  const tokens = ref<StyleTokens | null>(null) // 兼容旧 TokenPanel，V2 不再写入
   const css = ref('')
+  const previewHtml = ref('')
   const messages = ref<ChatMessage[]>([])
   const busy = ref(false)
   const archives = ref<ArchiveItem[]>([])
-  /** 当前会话对应的档案名：决定存档弹窗默认值（覆盖 = 同名保存，改名 = 另存为） */
   const activeArchiveName = ref<string | null>(null)
-  /** 待用户确认的本轮对话改动（用于基准/新版并排预览） */
   const pendingDiff = ref<PendingDiff | null>(null)
 
-  // 后端写操作串行化；CSS 响应只接受最新一次，避免拖拽滑杆时乱序覆盖
   let writeQueue: Promise<unknown> = Promise.resolve()
   let cssSeq = 0
+  let currentAbort: AbortController | null = null
+  let activeBotIndex: number | null = null
+  let generationStartedAt = 0
+  let lastUsage: TokenUsage | null = null
+
+  function emptyUsage(): TokenUsage {
+    return {
+      available: false,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+      cached_tokens: 0,
+      cache_miss_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+      raw: null,
+    }
+  }
+
+  function markStopped() {
+    const msg = activeBotIndex === null ? null : messages.value[activeBotIndex]
+    if (!msg || msg.stopped) return
+    msg.streaming = false
+    msg.stopped = true
+    msg.text = '已停止生成。'
+    msg.usage = lastUsage ?? emptyUsage()
+    msg.duration_ms = Date.now() - generationStartedAt
+    pendingDiff.value = null
+  }
+
+  function stopGeneration() {
+    if (!currentAbort) return
+    currentAbort.abort()
+    markStopped()
+  }
 
   function queueWrite<T>(job: () => Promise<T>): Promise<T> {
     const result = writeQueue.then(job, job)
@@ -45,35 +80,88 @@ export const useStyleStore = defineStore('style', () => {
   async function refreshCss() {
     const seq = ++cssSeq
     const next = await api.fetchPreviewCss()
-    if (seq === cssSeq) css.value = next
+    if (seq !== cssSeq) return
+    css.value = next.css
+    previewHtml.value = next.previewHtml
   }
 
   async function init() {
-    tokens.value = await api.fetchCurrent()
+    bundle.value = await api.fetchCurrent()
     await refreshCss()
   }
 
-  /** 对话历史（role+text），随 chat 发给后端 */
   function history() {
     return messages.value.map(m => ({ role: m.role, text: m.text }))
   }
 
   async function parsePrompt(prompt: string) {
-    if (!prompt.trim()) return
+    if (!prompt.trim() || busy.value) return
+    const baselineCss = css.value
+    const baselineHtml = previewHtml.value
     messages.value.push({ role: 'user', text: prompt })
     pendingDiff.value = null
+    const startedAt = Date.now()
+    const botIndex = messages.value.push({
+      role: 'bot', text: '', streaming: true, started_at: startedAt, trace: [],
+    }) - 1
+    activeBotIndex = botIndex
+    generationStartedAt = startedAt
+    lastUsage = null
+    currentAbort = new AbortController()
     busy.value = true
     try {
-      tokens.value = await queueWrite(() => api.parsePrompt(prompt))
-      activeArchiveName.value = null
-      messages.value.push({
-        role: 'bot',
-        text: `已按提示词生成初始风格「${tokens.value.meta.name}」。可以继续对话调整，比如「再柔和一点」「硬朗一些」，或到维度面板精调。`,
-      })
+      await api.chatStream(prompt, [], (ev) => {
+        const msg = messages.value[botIndex]
+        if (!msg) return
+        if (ev.type === 'delta') {
+          msg.raw = (msg.raw ?? '') + (ev.delta ?? '')
+        } else if (ev.type === 'reasoning') {
+          msg.reasoning = (msg.reasoning ?? '') + (ev.delta ?? '')
+        } else if (ev.type === 'usage') {
+          lastUsage = ev.usage ?? null
+        } else if (ev.type === 'done') {
+          msg.text = ev.reply ?? ''
+          msg.mode = ev.mode
+          msg.diff = ev.diff?.length ? ev.diff : undefined
+          msg.usage = ev.usage
+          msg.duration_ms = ev.duration_ms ?? (Date.now() - generationStartedAt)
+          msg.streaming = false
+          if (ev.bundle) bundle.value = ev.bundle
+          activeArchiveName.value = null
+          if (ev.diff?.length) {
+            pendingDiff.value = {
+              baselineCss,
+              baselineHtml,
+              diff: ev.diff,
+              reply: ev.reply ?? '',
+            }
+          }
+        } else if (ev.type === 'error') {
+          msg.text = `生成失败：${ev.message ?? '未知错误'}`
+          msg.streaming = false
+        } else {
+          msg.trace = msg.trace ?? []
+          msg.trace.push(ev)
+        }
+      }, 'rewrite', currentAbort.signal)
       await refreshCss()
-    } catch {
-      messages.value.push({ role: 'bot', text: '生成失败，检查后端服务是否在 8300 端口运行。' })
+    } catch (err) {
+      const aborted = currentAbort?.signal.aborted
+        || (err instanceof DOMException && err.name === 'AbortError')
+      if (aborted) {
+        markStopped()
+      } else {
+        const msg = messages.value[botIndex]
+        if (msg) {
+          msg.text = '生成失败，检查后端服务是否在 8300 端口运行。'
+          msg.streaming = false
+        }
+      }
     } finally {
+      const msg = messages.value[botIndex]
+      if (msg?.streaming) msg.streaming = false
+      currentAbort = null
+      activeBotIndex = null
       busy.value = false
     }
   }
@@ -81,12 +169,18 @@ export const useStyleStore = defineStore('style', () => {
   async function send(message: string) {
     if (!message.trim() || busy.value) return
     const baselineCss = css.value
+    const baselineHtml = previewHtml.value
     const hist = history()
     messages.value.push({ role: 'user', text: message })
     pendingDiff.value = null
+    const startedAt = Date.now()
     const botIndex = messages.value.push({
-      role: 'bot', text: '', streaming: true, trace: [],
+      role: 'bot', text: '', streaming: true, started_at: startedAt, trace: [],
     }) - 1
+    activeBotIndex = botIndex
+    generationStartedAt = startedAt
+    lastUsage = null
+    currentAbort = new AbortController()
     busy.value = true
     try {
       await api.chatStream(message, hist, (ev) => {
@@ -96,14 +190,23 @@ export const useStyleStore = defineStore('style', () => {
           msg.raw = (msg.raw ?? '') + (ev.delta ?? '')
         } else if (ev.type === 'reasoning') {
           msg.reasoning = (msg.reasoning ?? '') + (ev.delta ?? '')
+        } else if (ev.type === 'usage') {
+          lastUsage = ev.usage ?? null
         } else if (ev.type === 'done') {
           msg.text = ev.reply ?? ''
           msg.mode = ev.mode
           msg.diff = ev.diff?.length ? ev.diff : undefined
+          msg.usage = ev.usage
+          msg.duration_ms = ev.duration_ms ?? (Date.now() - generationStartedAt)
           msg.streaming = false
-          if (ev.tokens) tokens.value = ev.tokens
+          if (ev.bundle) bundle.value = ev.bundle
           if (ev.diff?.length) {
-            pendingDiff.value = { baselineCss, diff: ev.diff, reply: ev.reply ?? '' }
+            pendingDiff.value = {
+              baselineCss,
+              baselineHtml,
+              diff: ev.diff,
+              reply: ev.reply ?? '',
+            }
           }
         } else if (ev.type === 'error') {
           msg.text = `生成失败：${ev.message ?? '未知错误'}`
@@ -112,38 +215,44 @@ export const useStyleStore = defineStore('style', () => {
           msg.trace = msg.trace ?? []
           msg.trace.push(ev)
         }
-      })
+      }, undefined, currentAbort.signal)
       await refreshCss()
-    } catch {
-      const msg = messages.value[botIndex]
-      if (msg) {
-        msg.text = '对话失败，检查后端服务是否在 8300 端口运行。'
-        msg.streaming = false
+    } catch (err) {
+      const aborted = currentAbort?.signal.aborted
+        || (err instanceof DOMException && err.name === 'AbortError')
+      if (aborted) {
+        markStopped()
+      } else {
+        const msg = messages.value[botIndex]
+        if (msg) {
+          msg.text = '对话失败，检查后端服务是否在 8300 端口运行。'
+          msg.streaming = false
+        }
       }
     } finally {
       const msg = messages.value[botIndex]
       if (msg?.streaming) msg.streaming = false
+      currentAbort = null
+      activeBotIndex = null
       busy.value = false
     }
   }
 
-  /** 接受本轮改动：只收起对比，后端快照保留，仍可撤销 */
   function acceptDiff() {
     if (!pendingDiff.value) return
     pendingDiff.value = null
     messages.value.push({ role: 'bot', text: '已接受本轮修改，可随时用「撤销」回退。' })
   }
 
-  /** 拒绝本轮改动：撤销 chat 写入，回到基准状态 */
   async function rejectDiff() {
-    if (!pendingDiff.value || storeBusyGuard()) return
+    if (!pendingDiff.value || busy.value) return
     busy.value = true
     try {
       const res = await queueWrite(() => api.undo())
-      if (res.ok) {
-        tokens.value = res.tokens
+      if (res.ok && res.bundle) {
+        bundle.value = res.bundle
         await refreshCss()
-        messages.value.push({ role: 'bot', text: '已拒绝本轮修改，已回到基准状态。' })
+        messages.value.push({ role: 'bot', text: '已拒绝本轮修改，已回到基准产物包。' })
       } else {
         messages.value.push({ role: 'bot', text: '拒绝失败：没有可撤销的改动。' })
       }
@@ -153,14 +262,13 @@ export const useStyleStore = defineStore('style', () => {
     }
   }
 
-  /** 撤销最近一次改动（对话/面板/加载档案均可撤销） */
   async function undo() {
-    if (storeBusyGuard()) return
+    if (busy.value) return
     pendingDiff.value = null
     busy.value = true
     try {
       const res = await queueWrite(() => api.undo())
-      tokens.value = res.tokens
+      if (res.ok && res.bundle) bundle.value = res.bundle
       messages.value.push({
         role: 'bot',
         text: res.ok ? '已撤销最近一次改动。' : '没有可撤销的改动了。',
@@ -171,38 +279,26 @@ export const useStyleStore = defineStore('style', () => {
     }
   }
 
-  function storeBusyGuard() {
-    return busy.value
-  }
-
-  /** 面板改动：本地修改 tokens → 同步后端 → 刷新预览 */
-  async function patch(fn: (t: StyleTokens) => void) {
-    if (!tokens.value) return
-    pendingDiff.value = null
-    const next = structuredClone(toRaw(tokens.value))
-    fn(next)
-    tokens.value = next
-    await queueWrite(() => api.saveCurrent(next))
-    await refreshCss()
+  /** V2 不再提供 token 面板调参；保留签名避免旧组件破坏。 */
+  async function patch(_fn: (t: StyleTokens) => void) {
+    void _fn
   }
 
   async function reset() {
     pendingDiff.value = null
-    tokens.value = await queueWrite(() => api.resetStyle())
+    bundle.value = await queueWrite(() => api.resetStyle())
     activeArchiveName.value = null
-    messages.value.push({ role: 'bot', text: '已重置为「系统默认风格」。' })
+    messages.value.push({ role: 'bot', text: '已重置为「系统默认产物包」。' })
     await refreshCss()
   }
 
   async function useBlankTemplate() {
     pendingDiff.value = null
-    tokens.value = await queueWrite(() => api.useBlankTemplate())
+    bundle.value = await queueWrite(() => api.useBlankTemplate())
     activeArchiveName.value = null
-    messages.value.push({ role: 'bot', text: '已切换到「空模板」：无圆角、无投影、中性灰的朴素基线，可从维度面板开始打造个人风格。' })
+    messages.value.push({ role: 'bot', text: '已切换到「空模板」产物包基线。' })
     await refreshCss()
   }
-
-  // ---------- 档案持久化（MySQL） ----------
 
   async function refreshArchives() {
     const res = await api.listArchives()
@@ -212,12 +308,6 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function saveArchive(name: string) {
-    if (tokens.value && tokens.value.meta.name !== name) {
-      const next = structuredClone(toRaw(tokens.value))
-      next.meta.name = name
-      tokens.value = next
-      await queueWrite(() => api.saveCurrent(next))
-    }
     const res = await queueWrite(() => api.saveArchive(name))
     if (res.ok) {
       activeArchiveName.value = name
@@ -230,10 +320,10 @@ export const useStyleStore = defineStore('style', () => {
   async function loadArchive(id: number) {
     pendingDiff.value = null
     const res = await queueWrite(() => api.loadArchive(id))
-    if (res.ok) {
-      tokens.value = res.tokens
-      activeArchiveName.value = res.tokens.meta.name
-      messages.value.push({ role: 'bot', text: `已加载档案「${res.tokens.meta.name}」到当前风格。` })
+    if (res.ok && res.bundle) {
+      bundle.value = res.bundle
+      activeArchiveName.value = res.bundle.meta.name
+      messages.value.push({ role: 'bot', text: `已加载档案「${res.bundle.meta.name}」。` })
       await refreshCss()
     }
     return res
@@ -246,8 +336,8 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   return {
-    tokens, css, messages, busy, archives, activeArchiveName, pendingDiff,
-    init, refreshCss, parsePrompt, send, undo, acceptDiff, rejectDiff,
+    bundle, tokens, css, previewHtml, messages, busy, archives, activeArchiveName, pendingDiff,
+    init, refreshCss, parsePrompt, send, stopGeneration, undo, acceptDiff, rejectDiff,
     patch, reset, useBlankTemplate,
     refreshArchives, saveArchive, loadArchive, deleteArchive,
   }
