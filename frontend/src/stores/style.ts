@@ -94,6 +94,13 @@ export const useStyleStore = defineStore('style', () => {
     return messages.value.map(m => ({ role: m.role, text: m.text }))
   }
 
+  /** 只清空对话记录，不改动当前产物包 */
+  function clearMessages() {
+    messages.value = []
+    pendingDiff.value = null
+    activeBotIndex = null
+  }
+
   async function parsePrompt(prompt: string) {
     if (!prompt.trim() || busy.value) return
     const baselineCss = css.value
@@ -337,7 +344,7 @@ export const useStyleStore = defineStore('style', () => {
 
   return {
     bundle, tokens, css, previewHtml, messages, busy, archives, activeArchiveName, pendingDiff,
-    init, refreshCss, parsePrompt, send, stopGeneration, undo, acceptDiff, rejectDiff,
+    init, refreshCss, parsePrompt, send, clearMessages, stopGeneration, undo, acceptDiff, rejectDiff,
     patch, reset, useBlankTemplate,
     refreshArchives, saveArchive, loadArchive, deleteArchive,
   }

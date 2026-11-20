@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useStyleStore } from '../stores/style'
+import { toast } from '../composables/toast'
 
 type GroupKey = 'scene' | 'carrier' | 'style' | 'color' | 'material' | 'density' | 'font'
 
@@ -16,9 +17,19 @@ interface SelectedBadge {
   value: string
 }
 
+const props = defineProps<{ draft?: { text: string; seq: number } | null }>()
 const emit = defineEmits<{ submit: [prompt: string]; stop: [] }>()
 const store = useStyleStore()
 const generating = computed(() => store.messages.some(m => m.streaming))
+
+watch(() => props.draft, (d) => {
+  if (!d) return
+  promptText.value = d.text
+  nextTick(() => {
+    textareaRef.value?.focus()
+    textareaRef.value?.setSelectionRange(d.text.length, d.text.length)
+  })
+})
 
 const presets: PresetGroup[] = [
   {
@@ -122,6 +133,13 @@ function submit(text: string = promptText.value.trim()) {
 function quick(text: string) {
   submit(text)
 }
+
+function clearChat() {
+  if (store.busy) return
+  store.clearMessages()
+  reset()
+  toast.info('已清空全部对话，当前风格不受影响')
+}
 </script>
 
 <template>
@@ -183,6 +201,10 @@ function quick(text: string) {
         </template>
         <template v-else>
           <button
+            type="button" class="fd-btn fd-btn-ghost clear-btn" :disabled="store.busy"
+            title="清空聊天面板的全部对话（不影响当前产物）" @click="clearChat"
+          >✕ 清空</button>
+          <button
             type="button" class="fd-btn fd-btn-ghost undo-btn" :disabled="store.busy"
             title="撤销最近一次改动" @click="store.undo()"
           >↩ 撤销</button>
@@ -200,6 +222,12 @@ function quick(text: string) {
         type="button" class="fd-btn fd-btn-ghost quick-btn" :disabled="store.busy"
         @click="quick(q)"
       >{{ q }}</button>
+      <button
+        type="button" class="fd-btn fd-btn-ghost clear-chat-btn"
+        :disabled="store.busy || !store.messages.length"
+        title="清空上方全部对话（用户与模型回复），不影响当前产物"
+        @click="clearChat"
+      >✕ 清空对话</button>
     </div>
   </div>
 </template>
@@ -246,6 +274,14 @@ function quick(text: string) {
 .quick-btn {
   padding: 3px 8px;
   font-size: 11px;
+}
+.quick-row { align-items: center; }
+.clear-chat-btn {
+  margin-left: auto;
+  padding: 3px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--fd-danger-600, var(--fd-accent-700));
 }
 .preset-btn.has-value:not(.fd-btn-primary) {
   border-color: var(--fd-accent-400);
@@ -299,6 +335,7 @@ function quick(text: string) {
 .composer-actions {
   justify-content: flex-end;
 }
+.clear-btn,
 .undo-btn,
 .send-btn {
   padding: 4px 10px;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NButton, NConfigProvider, NModal, createDiscreteApi } from 'naive-ui'
+import { NButton, NConfigProvider, NModal } from 'naive-ui'
 import { useStyleStore } from '../stores/style'
 import {
   LLM_PROVIDERS,
@@ -19,12 +19,12 @@ import ArtifactPanel from '../components/ArtifactPanel.vue'
 import StylePreview from '../components/StylePreview.vue'
 import FdSelect from '../components/FdSelect.vue'
 import helpMd from '../assets/帮助文档.md?raw'
+import { toast } from '../composables/toast'
 
 const store = useStyleStore()
 const activeTab = ref('chat')
 const tokenDrawerOpen = ref(false)
 const showHelp = ref(false)
-const { message } = createDiscreteApi(['message'])
 
 const promptInput = ref('')
 
@@ -179,7 +179,81 @@ watch(() => store.pendingDiff, async () => {
   updateThumb()
 })
 
-onBeforeUnmount(stopDrag)
+onBeforeUnmount(() => {
+  stopDrag()
+  stopSplitDrag()
+})
+
+// —— 左右侧栏宽度分隔条 ——
+const LEFT_DEFAULT = 420
+const RIGHT_DEFAULT = 330
+const leftWidth = ref(LEFT_DEFAULT)
+const rightWidth = ref(RIGHT_DEFAULT)
+let splitSide: 'left' | 'right' | null = null
+let splitStartX = 0
+let splitStartWidth = 0
+
+function loadSplitWidths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('uidiy.split') || '{}')
+    if (typeof saved.left === 'number') leftWidth.value = saved.left
+    if (typeof saved.right === 'number') rightWidth.value = saved.right
+  } catch { /* 忽略脏数据 */ }
+}
+function saveSplitWidths() {
+  localStorage.setItem('uidiy.split', JSON.stringify({ left: leftWidth.value, right: rightWidth.value }))
+}
+let splitOverlay: HTMLDivElement | null = null
+
+function startSplitDrag(side: 'left' | 'right', event: MouseEvent) {
+  if (event.button !== 0) return
+  splitSide = side
+  splitStartX = event.clientX
+  splitStartWidth = side === 'left' ? leftWidth.value : rightWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  // 拖拽期间用透明遮罩接管全部鼠标事件，避免 iframe 吞掉 mousemove/mouseup 导致粘手
+  const overlay = document.createElement('div')
+  overlay.className = 'split-overlay'
+  document.body.appendChild(overlay)
+  splitOverlay = overlay
+  overlay.addEventListener('mousemove', onSplitDrag)
+  overlay.addEventListener('mouseup', stopSplitDrag)
+  window.addEventListener('mouseup', stopSplitDrag)
+  window.addEventListener('blur', stopSplitDrag)
+}
+function onSplitDrag(event: MouseEvent) {
+  if (!splitSide) return
+  const delta = event.clientX - splitStartX
+  const next = splitSide === 'left'
+    ? splitStartWidth + delta
+    : splitStartWidth - delta
+  const clamped = Math.min(700, Math.max(280, next))
+  if (splitSide === 'left') leftWidth.value = clamped
+  else rightWidth.value = clamped
+}
+function stopSplitDrag() {
+  if (splitOverlay) {
+    splitOverlay.removeEventListener('mousemove', onSplitDrag)
+    splitOverlay.removeEventListener('mouseup', stopSplitDrag)
+    splitOverlay.remove()
+    splitOverlay = null
+  }
+  window.removeEventListener('mouseup', stopSplitDrag)
+  window.removeEventListener('blur', stopSplitDrag)
+  if (!splitSide) return
+  splitSide = null
+  saveSplitWidths()
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+function resetSplit(side: 'left' | 'right') {
+  if (side === 'left') leftWidth.value = LEFT_DEFAULT
+  else rightWidth.value = RIGHT_DEFAULT
+  saveSplitWidths()
+}
+loadSplitWidths()
 
 // —— 存档 / 档案管理 ——
 const showSave = ref(false)
@@ -199,7 +273,7 @@ onMounted(() => store.init())
 async function doExport() {
   const name = store.bundle?.meta.name ?? 'style'
   await exportZip(`${name}.zip`)
-  message.success('产物包已导出：manifest + Prompt + preview + CSS + 溯源文件')
+  toast.success('产物包已导出：manifest + Prompt + preview + CSS + 溯源文件')
 }
 
 function openSave() {
@@ -210,19 +284,19 @@ function openSave() {
 async function confirmSave() {
   const name = saveName.value.trim()
   if (!name) {
-    message.warning(isBlankBaseline.value ? '请先为你的风格起个名字' : '档案名不能为空')
+    toast.warning(isBlankBaseline.value ? '请先为你的风格起个名字' : '档案名不能为空')
     return
   }
   if (name === BLANK_TEMPLATE_NAME) {
-    message.warning('「空模板」是内置基线名称，请改成你的风格名后再存档')
+    toast.warning('「空模板」是内置基线名称，请改成你的风格名后再存档')
     return
   }
   const res = await store.saveArchive(name)
   if (res.ok) {
     showSave.value = false
-    message.success(`已存档「${name}」到 MySQL`)
+    toast.success(`已存档「${name}」到 数据库`)
   } else {
-    message.error(res.error ?? '存档失败')
+    toast.error(res.error ?? '存档失败')
   }
 }
 
@@ -231,31 +305,31 @@ async function openArchives() {
   archivesLoading.value = true
   const res = await store.refreshArchives()
   archivesLoading.value = false
-  if (!res.ok) message.error(res.error ?? '档案加载失败（MySQL 是否在跑？）')
+  if (!res.ok) toast.error(res.error ?? '档案加载失败（MySQL 是否在跑？）')
 }
 
 async function doLoad(id: number) {
   const res = await store.loadArchive(id)
   if (res.ok) {
     showArchives.value = false
-    message.success('档案已加载为当前风格')
+    toast.success('档案已加载为当前风格')
   } else {
-    message.error(res.error ?? '加载失败')
+    toast.error(res.error ?? '加载失败')
   }
 }
 
 async function doDelete(id: number) {
   const res = await store.deleteArchive(id)
-  if (!res.ok) message.error(res.error ?? '删除失败')
+  if (!res.ok) toast.error(res.error ?? '删除失败')
 }
 
 async function doUseBlank() {
   showArchives.value = false
   try {
     await store.useBlankTemplate()
-    message.success('已切换到「空模板」，可从维度面板开始打造个人风格；存档时请另起名字')
+    toast.success('已切换到「空模板」，可从维度面板开始打造个人风格；存档时请另起名字')
   } catch {
-    message.error('切换空模板失败，检查后端服务')
+    toast.error('切换空模板失败，检查后端服务')
   }
 }
 
@@ -305,7 +379,7 @@ async function openSettings() {
     }
     llmLoaded.value = true
   } catch {
-    message.error('读取设置失败')
+    toast.error('读取设置失败')
   }
 }
 
@@ -336,9 +410,9 @@ async function doSaveLlm() {
     })
     keyInput.value = ''
     llmTestResult.value = null
-    message.success(`已保存 · AI 接入${llmCfg.value.enabled ? '已启用' : '未配置 key（将走内置词典兜底）'}`)
+    toast.success(`已保存 · AI 接入${llmCfg.value.enabled ? '已启用' : '未配置 key（将走内置词典兜底）'}`)
   } catch {
-    message.error('保存失败')
+    toast.error('保存失败')
   } finally {
     llmSaving.value = false
   }
@@ -406,7 +480,7 @@ const naiveTheme = {
 
       <!-- 主体：左对话 · 中预览 · 右产物面板 -->
       <main class="body">
-        <section class="left">
+        <section class="left" :style="{ width: leftWidth + 'px' }">
           <div class="left-card chat-card">
             <ChatPanel />
           </div>
@@ -414,6 +488,13 @@ const naiveTheme = {
             ⚙ 设置 <small>· AI 接入</small>
           </button>
         </section>
+
+        <div
+          class="splitter"
+          title="拖动调节对话面板宽度（双击复位）"
+          @mousedown.prevent="startSplitDrag('left', $event)"
+          @dblclick="resetSplit('left')"
+        ><span></span></div>
 
         <section class="center">
           <div class="center-frame">
@@ -492,10 +573,18 @@ const naiveTheme = {
           </div>
         </section>
 
-        <section v-if="tokenDrawerOpen" class="right">
+        <div
+          v-if="tokenDrawerOpen"
+          class="splitter"
+          title="拖动调节产物面板宽度（双击复位）"
+          @mousedown.prevent="startSplitDrag('right', $event)"
+          @dblclick="resetSplit('right')"
+        ><span></span></div>
+
+        <section v-if="tokenDrawerOpen" class="right" :style="{ width: rightWidth + 'px' }">
           <div class="right-card token-card">
             <div class="drawer-head">
-              <span class="fd-label">ARTIFACT · 产物查看器</span>
+              <span class="fd-label">产物查看</span>
               <n-button size="tiny" quaternary @click="tokenDrawerOpen = false">收起 ›</n-button>
             </div>
             <div class="token-body"><ArtifactPanel /></div>
@@ -518,7 +607,6 @@ const naiveTheme = {
       <!-- 存档弹窗 -->
       <n-modal v-model:show="showSave" :auto-focus="false">
         <div class="fd-card modal-card">
-          <span class="fd-label">SAVE TO MYSQL</span>
           <h2 class="fd-title">存档当前风格</h2>
           <input
             v-model="saveName"
@@ -536,7 +624,6 @@ const naiveTheme = {
       <!-- 档案列表弹窗 -->
       <n-modal v-model:show="showArchives" :auto-focus="false">
         <div class="fd-card modal-card modal-wide">
-          <span class="fd-label">ARCHIVES · MYSQL</span>
           <h2 class="fd-title">风格档案库</h2>
           <div v-if="archivesLoading" class="archive-empty">加载中…</div>
           <div v-else-if="store.archives.length === 0" class="archive-empty">
@@ -564,7 +651,6 @@ const naiveTheme = {
       <!-- 设置弹窗（LLM 接入） -->
       <n-modal v-model:show="showSettings" :auto-focus="false">
         <div class="fd-card modal-card modal-wide">
-          <span class="fd-label">SETTINGS · AI 接入</span>
           <h2 class="fd-title">大模型配置</h2>
           <p class="settings-hint">
             OpenAI 兼容接口均可（智谱 GLM / DeepSeek / OpenAI…）。
@@ -733,6 +819,7 @@ const naiveTheme = {
   flex-direction: column;
   gap: 14px;
   min-height: 0;
+  min-width: 0;
 }
 .left-card {
   background: var(--fd-surface);
@@ -804,6 +891,35 @@ const naiveTheme = {
   color: #a63d3d;
   background: #fbe6e6;
   border-color: var(--fd-danger);
+}
+
+/* —— 侧栏宽度分隔条 —— */
+.splitter {
+  flex: none;
+  width: 8px;
+  align-self: stretch;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--fd-r-sm);
+  transition: background var(--fd-dur) var(--fd-ease-out);
+}
+.splitter:hover { background: var(--fd-accent-50); }
+.splitter span {
+  width: 3px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--fd-accent-300);
+  box-shadow: var(--fd-e1);
+  transition: background var(--fd-dur) var(--fd-ease-out);
+}
+.splitter:hover span { background: var(--fd-accent-600); }
+:global(.split-overlay) {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  cursor: col-resize;
 }
 
 .center {

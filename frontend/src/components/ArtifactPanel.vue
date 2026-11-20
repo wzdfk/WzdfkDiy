@@ -27,10 +27,6 @@ const content = computed(() => {
 
 <template>
   <div class="artifact-panel">
-    <div class="artifact-head">
-      <span class="fd-label">ARTIFACT · 产物包</span>
-      <code>{{ store.bundle?.schemaVersion ?? '-' }}</code>
-    </div>
     <div class="artifact-tabs">
       <button
         v-for="item in tabs" :key="item.value"
@@ -44,11 +40,13 @@ const content = computed(() => {
 
 <style scoped>
 .artifact-panel {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   gap: 8px;
+  padding: 10px;
 }
 .artifact-head {
   display: flex;
@@ -61,6 +59,7 @@ const content = computed(() => {
   gap: 6px;
 }
 .artifact-view {
+  box-sizing: border-box;
   flex: 1;
   min-height: 0;
   width: 100%;

@@ -7,7 +7,10 @@ import PromptComposer from './PromptComposer.vue'
 const store = useStyleStore()
 const listEl = ref<HTMLElement | null>(null)
 const now = ref(Date.now())
+const editDraft = ref<{ text: string; seq: number } | null>(null)
+const copiedIndex = ref<number | null>(null)
 let tickTimer: number | null = null
+let copyTimer: number | null = null
 
 onMounted(() => {
   tickTimer = window.setInterval(() => {
@@ -17,7 +20,32 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (tickTimer !== null) window.clearInterval(tickTimer)
+  if (copyTimer !== null) window.clearTimeout(copyTimer)
 })
+
+async function copyMessage(msg: ChatMessage, index: number) {
+  const text = msg.text || ''
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+  copiedIndex.value = index
+  if (copyTimer !== null) window.clearTimeout(copyTimer)
+  copyTimer = window.setTimeout(() => { copiedIndex.value = null }, 1500)
+}
+
+function editMessage(msg: ChatMessage) {
+  if (store.busy) return
+  editDraft.value = { text: msg.text || '', seq: (editDraft.value?.seq ?? 0) + 1 }
+}
 
 async function submitPrompt(text: string) {
   if (!text.trim() || store.busy) return
@@ -182,6 +210,18 @@ function elapsedLabel(msg: ChatMessage) {
               <span class="diff-reason">{{ d.reason }}</span>
             </div>
           </div>
+          <div v-if="!msg.streaming" class="msg-actions">
+            <button
+              type="button" class="fd-btn fd-btn-ghost msg-action-btn"
+              :title="copiedIndex === i ? '已复制' : '复制消息'"
+              @click="copyMessage(msg, i)"
+            >{{ copiedIndex === i ? '✓ 已复制' : '⧉ 复制' }}</button>
+            <button
+              type="button" class="fd-btn fd-btn-ghost msg-action-btn"
+              title="把这条内容填回输入框，在当前档案基础上继续优化"
+              @click="editMessage(msg)"
+            >✎ 编辑</button>
+          </div>
         </div>
       </template>
 
@@ -193,7 +233,11 @@ function elapsedLabel(msg: ChatMessage) {
       </div>
     </div>
 
-    <PromptComposer @submit="submitPrompt" @stop="store.stopGeneration()" />
+    <PromptComposer
+      :draft="editDraft"
+      @submit="submitPrompt"
+      @stop="store.stopGeneration()"
+    />
   </div>
 </template>
 
@@ -480,6 +524,18 @@ function elapsedLabel(msg: ChatMessage) {
 }
 .diff-arrow b { color: var(--fd-accent-600); }
 .diff-reason { color: var(--fd-ink-400); }
+
+.msg-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1.5px dashed var(--fd-accent-200);
+}
+.msg-action-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+}
 
 .suggest-row {
   display: flex;

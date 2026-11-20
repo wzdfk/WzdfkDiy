@@ -86,13 +86,16 @@ watch(activeCss, () => {
 
 <style scoped>
 .preview-shell {
+  box-sizing: border-box;
   position: relative;
   height: 100%;
   min-height: 0;
+  padding: 12px;
 }
 .preview-shell.auto-height {
   height: auto;
   min-height: 100%;
+  padding: 0;
 }
 .preview-frame {
   display: block;
