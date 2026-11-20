@@ -90,20 +90,25 @@ watch(activeCss, () => {
   position: relative;
   height: 100%;
   min-height: 0;
-  padding: 12px;
+  padding: 16px;
+  background: var(--fd-accent-50);
+  transition: background-color var(--fd-dur-slow) var(--fd-ease-out);
 }
 .preview-shell.auto-height {
   height: auto;
   min-height: 100%;
   padding: 0;
+  background: transparent;
 }
 .preview-frame {
+  box-sizing: border-box;
   display: block;
   width: 100%;
   height: 100%;
-  border: none;
+  border: var(--fd-border);
   background: var(--fd-paper);
   border-radius: var(--fd-r-lg);
+  box-shadow: var(--fd-e1);
 }
 .preview-shell.auto-height .preview-frame {
   height: 240px;

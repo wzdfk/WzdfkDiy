@@ -76,8 +76,8 @@ body.fd-root {
 .fd-root *, .fd-root *::before, .fd-root *::after { box-sizing: border-box; }
 
 /* 标题：重字重 + 紧字距 */
-.fd-display { font-size: 28px; font-weight: 800; letter-spacing: -.02em; line-height: 1.25; }
-.fd-title   { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.fd-display { font-size: 28px; font-weight: 800; letter-spacing: -.02em; line-height: 1.25; color: var(--fd-ink-900); }
+.fd-title   { font-size: 18px; font-weight: 700; letter-spacing: -.01em; color: var(--fd-ink-900); }
 
 /* 标签：小字距宽，主题色 */
 .fd-label {
@@ -86,6 +86,8 @@ body.fd-root {
   letter-spacing: .14em;
   color: var(--fd-accent-600);
 }
+/* 深色下小字标签提亮，避免沉进背景 */
+html[data-theme="dark"] .fd-label { color: var(--fd-accent-400); }
 
 /* 虚线焦点环（签名规则 3） */
 .fd-btn:focus-visible,
@@ -332,7 +334,7 @@ html[data-theme="dark"] {
   /* 墨色反相：9 为正文亮，4 为次要 */
   --fd-ink-900: #e8edf2;
   --fd-ink-600: #b3bcc6;
-  --fd-ink-400: #78828d;
+  --fd-ink-400: #98a4b0;
 
   /* 面料：深底 + 略亮的卡面 */
   --fd-paper:   #14181d;

@@ -596,7 +596,7 @@ const naiveTheme = computed(() => ({
           <div class="right-card token-card">
             <div class="drawer-head">
               <span class="fd-label">产物查看</span>
-              <n-button size="tiny" quaternary @click="tokenDrawerOpen = false">收起 ›</n-button>
+              <button class="fd-btn fd-btn-ghost drawer-close" @click="tokenDrawerOpen = false">收起 ›</button>
             </div>
             <div class="token-body"><ArtifactPanel /></div>
           </div>
@@ -1003,7 +1003,8 @@ const naiveTheme = computed(() => ({
   border-radius: var(--fd-r-md);
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--fd-paper);
+  background: var(--fd-accent-50);
+  transition: background-color var(--fd-dur-slow) var(--fd-ease-out);
   scrollbar-width: none;
 }
 .preview-box::-webkit-scrollbar { display: none; }
@@ -1053,6 +1054,7 @@ const naiveTheme = computed(() => ({
   gap: 8px;
   padding: 10px 12px 6px;
 }
+.drawer-close { padding: 4px 10px; font-size: 12px; }
 .token-body { flex: 1; min-height: 0; overflow-y: auto; }
 
 /* —— 弹窗（FOLD 折角 + 实心投影） —— */
@@ -1161,6 +1163,7 @@ const naiveTheme = computed(() => ({
   display: flex;
   flex-direction: column;
 }
+.archive-meta b { color: var(--fd-ink-900); font-size: 13px; font-weight: 600; }
 .archive-meta small { color: var(--fd-ink-400); font-size: 11.5px; }
 .archive-actions { display: flex; gap: 6px; flex: none; }
 .archive-foot {
