@@ -474,10 +474,10 @@ function elapsedLabel(msg: ChatMessage) {
   vertical-align: middle;
 }
 .dot.input { background: var(--fd-accent-500); }
-.dot.hit { background: #4faf78; }
-.dot.miss { background: #d96060; }
-.dot.write { background: #dfa03c; }
-.dot.output { background: #8a7fd6; }
+.dot.hit { background: var(--fd-ok); }
+.dot.miss { background: var(--fd-danger); }
+.dot.write { background: var(--fd-warn); }
+.dot.output { background: var(--fd-info); }
 .dot.reason { color: var(--fd-accent-600); }
 .dot.reply { color: var(--fd-ink-400); }
 .cache-rate {
@@ -498,7 +498,7 @@ function elapsedLabel(msg: ChatMessage) {
 .cache-bar span {
   display: block;
   height: 100%;
-  background: #4faf78;
+  background: var(--fd-ok);
 }
 .usage-empty { color: var(--fd-ink-400); }
 

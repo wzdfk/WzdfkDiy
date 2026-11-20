@@ -20,6 +20,7 @@ import StylePreview from '../components/StylePreview.vue'
 import FdSelect from '../components/FdSelect.vue'
 import helpMd from '../assets/帮助文档.md?raw'
 import { toast } from '../composables/toast'
+import { themeMode, toggleTheme } from '../composables/theme'
 
 const store = useStyleStore()
 const activeTab = ref('chat')
@@ -428,16 +429,19 @@ async function defineStyle() {
 }
 
 // Naive UI 主题对齐 FOLD tokens（自举：工作台外壳也穿自家衣服）
-const naiveTheme = {
+const naiveTheme = computed(() => ({
   common: {
-    primaryColor: '#4a92bd',
-    primaryColorHover: '#3a789c',
-    primaryColorPressed: '#2f5f7d',
-    primaryColorSuppl: '#3a789c',
+    primaryColor: themeMode.value === 'dark' ? '#7fc0e4' : '#4a92bd',
+    primaryColorHover: themeMode.value === 'dark' ? '#a6d6ef' : '#3a789c',
+    primaryColorPressed: themeMode.value === 'dark' ? '#63a9d0' : '#2f5f7d',
+    primaryColorSuppl: themeMode.value === 'dark' ? '#a6d6ef' : '#3a789c',
     borderRadius: '8px',
     fontSizeMedium: '13px',
+    bodyColor: themeMode.value === 'dark' ? '#14181d' : '#ffffff',
+    cardColor: themeMode.value === 'dark' ? '#1e242b' : '#ffffff',
+    textColorBase: themeMode.value === 'dark' ? '#e8edf2' : '#23282f',
   },
-}
+}))
 </script>
 
 <template>
@@ -465,6 +469,13 @@ const naiveTheme = {
         </div>
         
         <div class="action-row">
+          <button
+            class="fd-btn help-icon theme-icon"
+            type="button"
+            :title="themeMode === 'light' ? '切换到深色（黑夜降临）' : '切换到浅色（划破天际）'"
+            :aria-label="themeMode === 'light' ? '切换到深色' : '切换到浅色'"
+            @click="toggleTheme"
+          >{{ themeMode === 'light' ? '◐' : '◑' }}</button>
           <button
             class="fd-btn help-icon"
             type="button"
@@ -788,6 +799,7 @@ const naiveTheme = {
   font-weight: 700;
   border-radius: 50%;
 }
+.theme-icon { font-size: 16px; }
 @media (max-width: 980px) {
   .topbar {
     grid-template-columns: 1fr auto;
@@ -883,13 +895,13 @@ const naiveTheme = {
   box-shadow: var(--fd-e1);
 }
 .test-result.ok {
-  color: #2e7d50;
-  background: #e3f3e9;
+  color: var(--fd-ok);
+  background: color-mix(in srgb, var(--fd-ok) 12%, var(--fd-surface));
   border-color: var(--fd-ok);
 }
 .test-result.bad {
-  color: #a63d3d;
-  background: #fbe6e6;
+  color: var(--fd-danger);
+  background: color-mix(in srgb, var(--fd-danger) 12%, var(--fd-surface));
   border-color: var(--fd-danger);
 }
 

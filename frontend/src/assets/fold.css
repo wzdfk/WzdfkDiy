@@ -314,9 +314,75 @@ body.fd-root {
 .fd-spring { transition: transform var(--fd-dur) var(--fd-ease-pop); }
 .fd-spring:hover { transform: rotate(-1deg) scale(1.04); }
 
-/* ============ 换肤示例（可选，复制改色即可） ============ */
-/* body.fd-theme-azure {
-  --fd-accent-50:#f0f9fc; --fd-accent-100:#dff1f8; --fd-accent-200:#bfe3f0;
-  --fd-accent-300:#8fd0e6; --fd-accent-400:#5cb7d8; --fd-accent-500:#3aa0c8;
-  --fd-accent-600:#2e83a8; --fd-accent-700:#266a89;
-} */
+/* ============================================================
+   深色主题：复用同一套 fd-* 签名，只换令牌值（不动结构/动效）
+   ============================================================ */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  /* 主色阶：深色下提亮，保证与深底对比 */
+  --fd-accent-50:  #16323f;
+  --fd-accent-100: #1d4457;
+  --fd-accent-200: #2b6381;
+  --fd-accent-300: #3d86ad;
+  --fd-accent-400: #63a9d0;
+  --fd-accent-500: #7fc0e4;
+  --fd-accent-600: #a6d6ef;
+  --fd-accent-700: #c9e7f6;
+
+  /* 墨色反相：9 为正文亮，4 为次要 */
+  --fd-ink-900: #e8edf2;
+  --fd-ink-600: #b3bcc6;
+  --fd-ink-400: #78828d;
+
+  /* 面料：深底 + 略亮的卡面 */
+  --fd-paper:   #14181d;
+  --fd-surface: #1e242b;
+  --fd-shadow:  #05080b;
+
+  /* 状态色提亮 */
+  --fd-ok:     #6fca96;
+  --fd-warn:   #e8b661;
+  --fd-danger: #e88484;
+  --fd-info:   #a99ce8;
+}
+
+/* 深色下几个写死浅底的场景 */
+html[data-theme="dark"] .fd-btn:disabled {
+  background: #2b323a;
+  border-color: #3d4650;
+}
+html[data-theme="dark"] .fd-badge-ok     { background: #17362a; color: #a6e3c1; border-color: var(--fd-ok); }
+html[data-theme="dark"] .fd-badge-warn   { background: #3a2c15; color: #f0ce8e; border-color: var(--fd-warn); }
+html[data-theme="dark"] .fd-badge-danger { background: #3d2020; color: #f2b1b1; border-color: var(--fd-danger); }
+html[data-theme="dark"] .fd-badge-info   { background: #2a2542; color: #c4baf2; border-color: var(--fd-info); }
+
+/* ============ 主题切换：划破天际 / 黑夜降临（View Transitions） ============
+   新主题从右上角圆形铺开（切暗）或从左上角铺开（切亮），0.6s 扫过全屏。
+   不支持 View Transitions 的浏览器由 composable 降级为无动画直接切换。 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+/* 旧主题固定在底层 */
+::view-transition-old(root) { z-index: 1; }
+/* 新主题在顶层，按方向从角落 wipe 展开 */
+::view-transition-new(root) {
+  z-index: 2;
+  animation: fd-theme-wipe-from-right 600ms cubic-bezier(.22, .61, .36, 1) both;
+}
+html[data-theme="light"]::view-transition-new(root) {
+  animation-name: fd-theme-wipe-from-left;
+}
+@keyframes fd-theme-wipe-from-right {
+  from { clip-path: circle(0% at 100% 0%); }
+  to   { clip-path: circle(150% at 100% 0%); }
+}
+@keyframes fd-theme-wipe-from-left {
+  from { clip-path: circle(0% at 0% 0%); }
+  to   { clip-path: circle(150% at 0% 0%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none !important; }
+}
