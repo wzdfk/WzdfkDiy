@@ -21,7 +21,61 @@ onMounted(() => {
 onUnmounted(() => {
   if (tickTimer !== null) window.clearInterval(tickTimer)
   if (copyTimer !== null) window.clearTimeout(copyTimer)
+  stopComposerDrag()
 })
+
+// —— 输入区高度分隔条 ——
+const COMPOSER_DEFAULT = 256
+const composerHeight = ref(COMPOSER_DEFAULT)
+let composerOverlay: HTMLDivElement | null = null
+let composerStartY = 0
+let composerStartHeight = 0
+
+function loadComposerHeight() {
+  try {
+    const saved = Number(localStorage.getItem('uidiy.composerHeight'))
+    if (saved >= 120 && saved <= 520) composerHeight.value = saved
+  } catch { /* 忽略脏数据 */ }
+}
+function startComposerDrag(event: MouseEvent) {
+  if (event.button !== 0) return
+  composerStartY = event.clientY
+  composerStartHeight = composerHeight.value
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+  const overlay = document.createElement('div')
+  overlay.className = 'composer-split-overlay'
+  document.body.appendChild(overlay)
+  composerOverlay = overlay
+  overlay.addEventListener('mousemove', onComposerDrag)
+  overlay.addEventListener('mouseup', stopComposerDrag)
+  window.addEventListener('mouseup', stopComposerDrag)
+  window.addEventListener('blur', stopComposerDrag)
+}
+function onComposerDrag(event: MouseEvent) {
+  const delta = composerStartY - event.clientY
+  composerHeight.value = Math.min(520, Math.max(120, composerStartHeight + delta))
+}
+function stopComposerDrag() {
+  if (composerOverlay) {
+    composerOverlay.removeEventListener('mousemove', onComposerDrag)
+    composerOverlay.removeEventListener('mouseup', stopComposerDrag)
+    composerOverlay.remove()
+    composerOverlay = null
+  }
+  window.removeEventListener('mouseup', stopComposerDrag)
+  window.removeEventListener('blur', stopComposerDrag)
+  if (document.body.style.cursor === 'row-resize') {
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    localStorage.setItem('uidiy.composerHeight', String(composerHeight.value))
+  }
+}
+function resetComposer() {
+  composerHeight.value = COMPOSER_DEFAULT
+  localStorage.setItem('uidiy.composerHeight', String(COMPOSER_DEFAULT))
+}
+loadComposerHeight()
 
 async function copyMessage(msg: ChatMessage, index: number) {
   const text = msg.text || ''
@@ -210,7 +264,7 @@ function elapsedLabel(msg: ChatMessage) {
               <span class="diff-reason">{{ d.reason }}</span>
             </div>
           </div>
-          <div v-if="!msg.streaming" class="msg-actions">
+          <div v-if="msg.role === 'user' && !msg.streaming" class="msg-actions">
             <button
               type="button" class="fd-btn fd-btn-ghost msg-action-btn"
               :title="copiedIndex === i ? '已复制' : '复制消息'"
@@ -233,11 +287,20 @@ function elapsedLabel(msg: ChatMessage) {
       </div>
     </div>
 
-    <PromptComposer
-      :draft="editDraft"
-      @submit="submitPrompt"
-      @stop="store.stopGeneration()"
-    />
+    <div
+      class="composer-splitter"
+      title="拖动调节输入区高度（双击复位）"
+      @mousedown.prevent="startComposerDrag"
+      @dblclick="resetComposer"
+    ><span></span></div>
+
+    <div class="composer-slot" :style="{ height: composerHeight + 'px' }">
+      <PromptComposer
+        :draft="editDraft"
+        @submit="submitPrompt"
+        @stop="store.stopGeneration()"
+      />
+    </div>
   </div>
 </template>
 
@@ -535,6 +598,39 @@ function elapsedLabel(msg: ChatMessage) {
 .msg-action-btn {
   padding: 2px 8px;
   font-size: 11px;
+}
+
+.composer-splitter {
+  flex: none;
+  height: 8px;
+  align-self: stretch;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--fd-dur) var(--fd-ease-out);
+}
+.composer-splitter:hover { background: var(--fd-accent-50); }
+.composer-splitter span {
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fd-accent-300);
+  box-shadow: var(--fd-e1);
+  transition: background var(--fd-dur) var(--fd-ease-out);
+}
+.composer-splitter:hover span { background: var(--fd-accent-600); }
+.composer-slot {
+  flex: none;
+  min-height: 0;
+  overflow-y: auto;
+}
+.composer-slot > * { height: 100%; }
+:global(.composer-split-overlay) {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  cursor: row-resize;
 }
 
 .suggest-row {

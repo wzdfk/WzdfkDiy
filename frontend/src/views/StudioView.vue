@@ -186,7 +186,7 @@ onBeforeUnmount(() => {
 })
 
 // —— 左右侧栏宽度分隔条 ——
-const LEFT_DEFAULT = 420
+const LEFT_DEFAULT = 540
 const RIGHT_DEFAULT = 330
 const leftWidth = ref(LEFT_DEFAULT)
 const rightWidth = ref(RIGHT_DEFAULT)

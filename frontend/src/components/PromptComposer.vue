@@ -234,9 +234,11 @@ function clearChat() {
 
 <style scoped>
 .composer {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  height: 100%;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--fd-accent-100);
   background: var(--fd-surface);
@@ -298,6 +300,9 @@ function clearChat() {
   background: var(--fd-accent-50);
 }
 .input-shell {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -324,6 +329,9 @@ function clearChat() {
   font-weight: 700;
 }
 .composer-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   border: none;
   outline: none;
