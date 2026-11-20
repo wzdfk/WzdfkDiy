@@ -193,6 +193,93 @@ body.fd-root {
 .fd-field.fd-error .fd-input { border-color: var(--fd-danger); }
 .fd-field.fd-error .fd-hint  { color: var(--fd-danger); }
 
+/* ============ Select 选择器（第七组件） ============ */
+.fd-select { position: relative; display: inline-block; min-width: 180px; }
+.fd-select-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--fd-sp-2);
+  width: 100%; text-align: left; cursor: pointer;
+  font-family: inherit; font-size: 14px; font-weight: 400;
+  color: var(--fd-ink-900);
+  background: var(--fd-surface);
+  border: var(--fd-border); border-radius: var(--fd-r-sm);
+  padding: 10px 14px;
+}
+.fd-select-trigger:hover { border-color: var(--fd-accent-400); }
+.fd-select-trigger.is-open {
+  border-color: var(--fd-accent-500);
+  box-shadow: 3px 3px 0 var(--fd-accent-300);
+}
+.fd-select-caret {
+  flex: none; color: var(--fd-ink-400); font-size: 11px;
+  transition: transform var(--fd-dur) var(--fd-ease-pop);
+}
+.fd-select-trigger.is-open .fd-select-caret { transform: rotate(180deg); }
+.fd-select-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  max-height: 240px; overflow-y: auto;
+  background: var(--fd-surface);
+  border: var(--fd-border); border-radius: var(--fd-r-md);
+  box-shadow: var(--fd-e2);
+  padding: 6px;
+  animation: fd-select-in var(--fd-dur) var(--fd-ease-pop);
+}
+.fd-select-opt {
+  display: flex; align-items: center; gap: var(--fd-sp-2);
+  padding: 7px 10px; border-radius: var(--fd-r-sm);
+  cursor: pointer; font-size: 13px; color: var(--fd-ink-600);
+  transition: background var(--fd-dur) var(--fd-ease-out),
+              color var(--fd-dur) var(--fd-ease-out);
+}
+.fd-select-opt:hover { background: var(--fd-accent-50); color: var(--fd-ink-900); }
+.fd-select-opt.is-selected {
+  background: var(--fd-accent-100); color: var(--fd-ink-900); font-weight: 600;
+}
+.fd-select-check { width: 14px; flex: none; color: var(--fd-accent-600); opacity: 0; }
+.fd-select-opt.is-selected .fd-select-check { opacity: 1; }
+@keyframes fd-select-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============ Modal 弹窗（第六组件） ============ */
+.fd-modal-mask {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--fd-sp-5);
+  background: color-mix(in srgb, var(--fd-ink-900) 48%, transparent);
+  animation: fd-mask-in var(--fd-dur) var(--fd-ease-out);
+}
+.fd-modal-mask[hidden] { display: none; }
+.fd-modal {
+  width: min(440px, 100%);
+  background: var(--fd-surface);
+  border: var(--fd-border);
+  border-radius: var(--fd-r-lg);
+  box-shadow: var(--fd-e3);
+  animation: fd-modal-in var(--fd-dur-slow) var(--fd-ease-pop);
+}
+.fd-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--fd-sp-3);
+  padding: var(--fd-sp-4) var(--fd-sp-5);
+  border-bottom: 1.5px dashed var(--fd-accent-200);
+}
+.fd-modal-body {
+  padding: var(--fd-sp-5);
+  font-size: 14px; color: var(--fd-ink-600);
+}
+.fd-modal-actions {
+  display: flex; justify-content: flex-end; gap: var(--fd-sp-3);
+  padding: 0 var(--fd-sp-5) var(--fd-sp-5);
+}
+@keyframes fd-mask-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fd-modal-in {
+  from { opacity: 0; transform: translateY(-12px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
 /* ============ Badge / Tag ============ */
 .fd-badge {
   display: inline-flex;

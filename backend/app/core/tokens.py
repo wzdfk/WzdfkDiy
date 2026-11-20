@@ -133,7 +133,7 @@ class ControlBox(BaseModel):
 
 
 class ComponentTokens(BaseModel):
-    """五组件 + 菜单的盒模型字段 —— 未来控件详情面板直接读写这里。"""
+    """五组件 + 菜单的盒模型字段（Modal 复用 card、Select 复用 input/menu 令牌）—— 未来控件详情面板直接读写这里。"""
     button: ControlBox = ControlBox(padding_x="22px", padding_y="10px", font_weight=600, shadow_ref="e1")
     card: ControlBox = ControlBox(padding_x="20px", padding_y="20px", font_size="", font_weight=700,
                                   radius_ref="lg", shadow_ref="e2")

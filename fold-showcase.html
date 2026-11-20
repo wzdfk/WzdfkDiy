@@ -174,6 +174,93 @@
   }
   .fd-link:hover { background-size: 100% 2px; }
 
+  /* —— Select 选择器（第七组件） —— */
+  .fd-select { position: relative; display: inline-block; min-width: 180px; }
+  .fd-select-trigger {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--fd-sp-2);
+    width: 100%; text-align: left; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: 400;
+    color: var(--fd-ink-900);
+    background: var(--fd-surface);
+    border: var(--fd-border); border-radius: var(--fd-r-sm);
+    padding: 10px 14px;
+  }
+  .fd-select-trigger:hover { border-color: var(--fd-accent-400); }
+  .fd-select-trigger.is-open {
+    border-color: var(--fd-accent-500);
+    box-shadow: 3px 3px 0 var(--fd-accent-300);
+  }
+  .fd-select-caret {
+    flex: none; color: var(--fd-ink-400); font-size: 11px;
+    transition: transform var(--fd-dur) var(--fd-ease-pop);
+  }
+  .fd-select-trigger.is-open .fd-select-caret { transform: rotate(180deg); }
+  .fd-select-menu {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+    max-height: 240px; overflow-y: auto;
+    background: var(--fd-surface);
+    border: var(--fd-border); border-radius: var(--fd-r-md);
+    box-shadow: var(--fd-e2);
+    padding: 6px;
+    animation: fd-select-in var(--fd-dur) var(--fd-ease-pop);
+  }
+  .fd-select-opt {
+    display: flex; align-items: center; gap: var(--fd-sp-2);
+    padding: 7px 10px; border-radius: var(--fd-r-sm);
+    cursor: pointer; font-size: 13px; color: var(--fd-ink-600);
+    transition: background var(--fd-dur) var(--fd-ease-out),
+                color var(--fd-dur) var(--fd-ease-out);
+  }
+  .fd-select-opt:hover { background: var(--fd-accent-50); color: var(--fd-ink-900); }
+  .fd-select-opt.is-selected {
+    background: var(--fd-accent-100); color: var(--fd-ink-900); font-weight: 600;
+  }
+  .fd-select-check { width: 14px; flex: none; color: var(--fd-accent-600); opacity: 0; }
+  .fd-select-opt.is-selected .fd-select-check { opacity: 1; }
+  @keyframes fd-select-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* —— Modal 弹窗（第六组件） —— */
+  .fd-modal-mask {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--fd-sp-5);
+    background: color-mix(in srgb, var(--fd-ink-900) 48%, transparent);
+    animation: fd-mask-in var(--fd-dur) var(--fd-ease-out);
+  }
+  .fd-modal-mask[hidden] { display: none; }
+  .fd-modal {
+    width: min(440px, 100%);
+    background: var(--fd-surface);
+    border: var(--fd-border);
+    border-radius: var(--fd-r-lg);
+    box-shadow: var(--fd-e3);
+    animation: fd-modal-in var(--fd-dur-slow) var(--fd-ease-pop);
+  }
+  .fd-modal-head {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--fd-sp-3);
+    padding: var(--fd-sp-4) var(--fd-sp-5);
+    border-bottom: 1.5px dashed var(--fd-accent-200);
+  }
+  .fd-modal-body {
+    padding: var(--fd-sp-5);
+    font-size: 14px; color: var(--fd-ink-600);
+  }
+  .fd-modal-actions {
+    display: flex; justify-content: flex-end; gap: var(--fd-sp-3);
+    padding: 0 var(--fd-sp-5) var(--fd-sp-5);
+  }
+  @keyframes fd-mask-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes fd-modal-in {
+    from { opacity: 0; transform: translateY(-12px) scale(.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+
   /* —— 令牌展示 —— */
   .token-colors { display: flex; flex-wrap: wrap; gap: var(--fd-sp-2); }
   .swatch { width: 56px; text-align: center; font-size: 10px; color: var(--fd-ink-400); }
@@ -377,11 +464,89 @@
       </div>
     </section>
 
+    <!-- Select -->
+    <section>
+      <span class="fd-label">SELECT · 选择器（触发器与浮层）</span>
+      <div class="fd-card" style="padding:28px;">
+        <div class="fd-select" id="demo-select" style="width:220px;">
+          <button type="button" class="fd-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span class="fd-select-value">智谱 GLM</span>
+            <span class="fd-select-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="fd-select-menu" role="listbox" hidden>
+            <div class="fd-select-opt is-selected" data-label="智谱 GLM" role="option"><span class="fd-select-check">✓</span>智谱 GLM</div>
+            <div class="fd-select-opt" data-label="DeepSeek" role="option"><span class="fd-select-check">✓</span>DeepSeek</div>
+            <div class="fd-select-opt" data-label="OpenAI 兼容" role="option"><span class="fd-select-check">✓</span>OpenAI 兼容</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal -->
+    <section>
+      <span class="fd-label">MODAL · 弹窗（遮罩与浮层）</span>
+      <div class="fd-card" style="padding:28px;">
+        <button class="fd-btn fd-btn-primary" id="demo-modal-open">打开弹窗</button>
+        <span style="margin-left:12px;font-size:13px;color:var(--fd-ink-600);">点开看遮罩、折角与弹性入场；点遮罩或按 Esc 关闭</span>
+      </div>
+      <div class="fd-modal-mask" id="demo-modal" hidden>
+        <div class="fd-modal" role="dialog" aria-modal="true">
+          <div class="fd-modal-head">
+            <span class="fd-title">确认操作</span>
+            <button class="fd-btn fd-btn-ghost" id="demo-modal-x" aria-label="关闭">✕</button>
+          </div>
+          <div class="fd-modal-body">Modal 是第六个验证组件：遮罩、浮层圆角、偏移投影与弹性入场都用同一套令牌。</div>
+          <div class="fd-modal-actions">
+            <button class="fd-btn" data-modal-close>取消</button>
+            <button class="fd-btn fd-btn-primary" id="demo-modal-ok">确认</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <footer>
       <span>系统默认风格 v1.0（原 FOLD 折角设计系统）</span>
       <span>tokens + 组件见 fold-design-system.css</span>
     </footer>
 
   </main>
+
+  <script>
+    (function () {
+      var modal = document.getElementById('demo-modal');
+      function close() { modal.hidden = true; }
+      document.getElementById('demo-modal-open').addEventListener('click', function () { modal.hidden = false; });
+      document.getElementById('demo-modal-x').addEventListener('click', close);
+      Array.prototype.forEach.call(document.querySelectorAll('[data-modal-close]'), function (b) {
+        b.addEventListener('click', close);
+      });
+      modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      document.getElementById('demo-modal-ok').addEventListener('click', close);
+
+      var sel = document.getElementById('demo-select');
+      var selTrigger = sel.querySelector('.fd-select-trigger');
+      var selMenu = sel.querySelector('.fd-select-menu');
+      var selValue = sel.querySelector('.fd-select-value');
+      function setSelOpen(open) {
+        selMenu.hidden = !open;
+        selTrigger.classList.toggle('is-open', open);
+        selTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      selTrigger.addEventListener('click', function (e) { e.stopPropagation(); setSelOpen(selMenu.hidden); });
+      document.addEventListener('click', function (e) { if (!sel.contains(e.target)) setSelOpen(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setSelOpen(false); });
+      Array.prototype.forEach.call(sel.querySelectorAll('.fd-select-opt'), function (opt) {
+        opt.addEventListener('click', function () {
+          Array.prototype.forEach.call(sel.querySelectorAll('.fd-select-opt'), function (o) {
+            o.classList.remove('is-selected');
+          });
+          opt.classList.add('is-selected');
+          selValue.textContent = opt.getAttribute('data-label');
+          setSelOpen(false);
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NButton, NConfigProvider, NInput, NModal, createDiscreteApi } from 'naive-ui'
+import { NButton, NConfigProvider, NModal, createDiscreteApi } from 'naive-ui'
 import { useStyleStore } from '../stores/style'
 import {
   LLM_PROVIDERS,
@@ -17,13 +17,76 @@ import {
 import ChatPanel from '../components/ChatPanel.vue'
 import ArtifactPanel from '../components/ArtifactPanel.vue'
 import StylePreview from '../components/StylePreview.vue'
+import FdSelect from '../components/FdSelect.vue'
+import helpMd from '../assets/帮助文档.md?raw'
 
 const store = useStyleStore()
 const activeTab = ref('chat')
 const tokenDrawerOpen = ref(false)
+const showHelp = ref(false)
 const { message } = createDiscreteApi(['message'])
 
 const promptInput = ref('')
+
+// —— 使用帮助：本地静态 md 的极简渲染（先转义再套标签，不引依赖） ——
+function escapeHtml(text: string) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+function inlineMd(text: string) {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+const helpHtml = computed(() => {
+  const lines = helpMd.replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  const cells = (row: string) => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line)
+    if (heading) {
+      out.push(`<h${heading[1].length}>${inlineMd(heading[2])}</h${heading[1].length}>`)
+      i++
+      continue
+    }
+    if (line.startsWith('|') && (lines[i + 1] ?? '').includes('---')) {
+      const head = cells(line)
+      i += 2
+      const rows: string[][] = []
+      while (i < lines.length && lines[i].startsWith('|')) { rows.push(cells(lines[i])); i++ }
+      out.push(`<table><thead><tr>${head.map(c => `<th>${inlineMd(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${inlineMd(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`)
+      continue
+    }
+    if (/^\d+\.\s/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        items.push(`<li>${inlineMd(lines[i].replace(/^\d+\.\s/, ''))}</li>`)
+        i++
+      }
+      out.push(`<ol>${items.join('')}</ol>`)
+      continue
+    }
+    if (/^>\s?/.test(line)) {
+      const parts: string[] = []
+      while (i < lines.length && /^>\s?/.test(lines[i])) {
+        parts.push(inlineMd(lines[i].replace(/^>\s?/, '')))
+        i++
+      }
+      out.push(`<blockquote>${parts.join('<br>')}</blockquote>`)
+      continue
+    }
+    if (!line.trim()) { i++; continue }
+    const para: string[] = []
+    while (i < lines.length && lines[i].trim() && !/^(#{1,3}\s|\d+\.\s|[-*]\s|>|\|)/.test(lines[i])) {
+      para.push(inlineMd(lines[i].trim()))
+      i++
+    }
+    if (para.length) out.push(`<p>${para.join('<br>')}</p>`)
+    else i++
+  }
+  return out.join('')
+})
 
 // —— 双预览同步滚动 ——
 const baselineBox = ref<HTMLElement | null>(null)
@@ -204,6 +267,7 @@ const llmCfg = ref<LlmSettings>({
 })
 const llmLoaded = ref(false)
 const keyInput = ref('')
+const showKey = ref(false)
 const llmTesting = ref(false)
 const llmTestResult = ref<{ ok: boolean; text: string } | null>(null)
 const llmSaving = ref(false)
@@ -219,6 +283,14 @@ function applyProvider(provider: LlmProvider, fillModel = true) {
   if (!values.includes(llmCfg.value.reasoning_effort)) {
     llmCfg.value.reasoning_effort = 'auto' as ReasoningEffort
   }
+}
+
+function onProviderChange(value: string) {
+  applyProvider(value as LlmProvider)
+}
+
+function onReasoningChange(value: string) {
+  llmCfg.value.reasoning_effort = value as ReasoningEffort
 }
 
 async function openSettings() {
@@ -305,19 +377,30 @@ const naiveTheme = {
           <span v-if="store.bundle" class="style-name">{{ store.bundle.meta.name }}</span>
         </div>
         <div class="define-row">
-          <n-input
-            v-model:value="promptInput"
+          <input
+            v-model="promptInput"
+            class="fd-input topbar-input"
             placeholder="一句话定义新风格，回车生成…"
-            size="small"
-            style="width: 300px;"
             @keydown.enter="defineStyle"
           />
-          <n-button size="small" @click="defineStyle">新建风格</n-button>
+          <button
+            class="fd-btn topbar-btn"
+            :disabled="!promptInput.trim()"
+            @click="defineStyle"
+          >新建风格</button>
         </div>
+        
         <div class="action-row">
-          <n-button size="small" quaternary @click="openSave">存档</n-button>
-          <n-button size="small" quaternary @click="openArchives">档案</n-button>
-          <n-button size="small" type="primary" @click="doExport">导出产物包</n-button>
+          <button
+            class="fd-btn help-icon"
+            type="button"
+            title="使用帮助"
+            aria-label="使用帮助"
+            @click="showHelp = true"
+          >?</button>
+          <button class="fd-btn fd-btn-ghost topbar-btn" @click="openSave">存档</button>
+          <button class="fd-btn fd-btn-ghost topbar-btn" @click="openArchives">档案</button>
+          <button class="fd-btn fd-btn-primary topbar-btn" @click="doExport">导出产物包</button>
         </div>
       </header>
 
@@ -420,20 +503,32 @@ const naiveTheme = {
         </section>
       </main>
 
+      <!-- 使用帮助弹窗 -->
+      <n-modal v-model:show="showHelp" :auto-focus="false">
+        <div class="fd-card modal-card modal-wide help-modal">
+          <span class="fd-label">HELP · 使用说明</span>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div class="help-body" v-html="helpHtml"></div>
+          <div class="modal-actions">
+            <button class="fd-btn fd-btn-primary" @click="showHelp = false">知道了</button>
+          </div>
+        </div>
+      </n-modal>
+
       <!-- 存档弹窗 -->
       <n-modal v-model:show="showSave" :auto-focus="false">
         <div class="fd-card modal-card">
           <span class="fd-label">SAVE TO MYSQL</span>
           <h2 class="fd-title">存档当前风格</h2>
-          <n-input
-            v-model:value="saveName"
+          <input
+            v-model="saveName"
+            class="fd-input modal-input"
             :placeholder="savePlaceholder"
-            size="small"
             @keydown.enter="confirmSave"
           />
           <div class="modal-actions">
-            <n-button size="small" @click="showSave = false">取消</n-button>
-            <n-button size="small" type="primary" @click="confirmSave">保存</n-button>
+            <button class="fd-btn" @click="showSave = false">取消</button>
+            <button class="fd-btn fd-btn-primary" @click="confirmSave">保存</button>
           </div>
         </div>
       </n-modal>
@@ -455,13 +550,13 @@ const naiveTheme = {
                 <small>{{ a.updated_at.replace('T', ' ') }}</small>
               </div>
               <div class="archive-actions">
-                <n-button size="tiny" type="primary" @click="doLoad(a.id)">加载</n-button>
-                <n-button size="tiny" quaternary type="error" @click="doDelete(a.id)">删除</n-button>
+                <button class="fd-btn fd-btn-tiny fd-btn-primary" @click="doLoad(a.id)">加载</button>
+                <button class="fd-btn fd-btn-tiny fd-btn-danger" @click="doDelete(a.id)">删除</button>
               </div>
             </div>
           </div>
           <div class="modal-actions archive-foot">
-            <n-button size="small" quaternary @click="doUseBlank">使用空模板</n-button>
+            <button class="fd-btn fd-btn-ghost" @click="doUseBlank">使用空模板</button>
           </div>
         </div>
       </n-modal>
@@ -478,34 +573,48 @@ const naiveTheme = {
 
           <div v-if="llmLoaded" class="settings-form">
             <label class="fd-label">厂商 PROVIDER</label>
-            <select
-              v-model="llmCfg.provider"
-              class="fd-input reasoning-select"
-              @change="applyProvider(llmCfg.provider)"
-            >
-              <option v-for="p in LLM_PROVIDERS" :key="p.value" :value="p.value">{{ p.label }}</option>
-            </select>
-
-            <label class="fd-label">接口地址 BASE_URL</label>
-            <n-input v-model:value="llmCfg.base_url" size="small" placeholder="选择厂商后自动填入" />
-
-            <label class="fd-label">模型 MODEL</label>
-            <n-input v-model:value="llmCfg.model" size="small" placeholder="选择厂商后自动填入" />
-
-            <label class="fd-label">API KEY</label>
-            <n-input
-              v-model:value="keyInput"
-              type="password" show-password-on="click"
-              size="small"
-              :placeholder="llmCfg.has_key ? `已配置（${llmCfg.key_masked}），留空保持不变` : '粘贴你的 key'"
+            <FdSelect
+              :model-value="llmCfg.provider"
+              :options="LLM_PROVIDERS"
+              @update:model-value="onProviderChange"
             />
 
+            <label class="fd-label">接口地址 BASE_URL</label>
+            <input
+              v-model="llmCfg.base_url"
+              class="fd-input"
+              placeholder="选择厂商后自动填入"
+            />
+
+            <label class="fd-label">模型 MODEL</label>
+            <input
+              v-model="llmCfg.model"
+              class="fd-input"
+              placeholder="选择厂商后自动填入"
+            />
+
+            <label class="fd-label">API KEY</label>
+            <div class="key-field">
+              <input
+                v-model="keyInput"
+                class="fd-input"
+                :type="showKey ? 'text' : 'password'"
+                :placeholder="llmCfg.has_key ? `已配置（${llmCfg.key_masked}），留空保持不变` : '粘贴你的 key'"
+              />
+              <button
+                class="fd-btn fd-btn-ghost key-toggle"
+                type="button"
+                :title="showKey ? '隐藏 key' : '显示 key'"
+                @click="showKey = !showKey"
+              >{{ showKey ? '隐藏' : '显示' }}</button>
+            </div>
+
             <label class="fd-label">思考强度 REASONING EFFORT</label>
-            <select v-model="llmCfg.reasoning_effort" class="fd-input reasoning-select">
-              <option v-for="opt in reasoningOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
+            <FdSelect
+              :model-value="llmCfg.reasoning_effort"
+              :options="reasoningOptions"
+              @update:model-value="onReasoningChange"
+            />
             <div v-if="providerPreset.hint" class="settings-hint">{{ providerPreset.hint }}</div>
 
             <div v-if="llmTestResult" class="test-result" :class="llmTestResult.ok ? 'ok' : 'bad'">
@@ -513,8 +622,12 @@ const naiveTheme = {
             </div>
 
             <div class="modal-actions">
-              <n-button size="small" :loading="llmTesting" @click="doTestLlm">测试连接</n-button>
-              <n-button size="small" type="primary" :loading="llmSaving" @click="doSaveLlm">保存</n-button>
+              <button class="fd-btn" :disabled="llmTesting" @click="doTestLlm">
+                {{ llmTesting ? '测试中…' : '测试连接' }}
+              </button>
+              <button class="fd-btn fd-btn-primary" :disabled="llmSaving" @click="doSaveLlm">
+                {{ llmSaving ? '保存中…' : '保存' }}
+              </button>
             </div>
           </div>
           <div v-else class="archive-empty">加载中…</div>
@@ -569,6 +682,25 @@ const naiveTheme = {
   justify-self: end;
   gap: 10px;
   align-items: center;
+}
+/* 顶栏折角控件：沿用 fd-* 签名，仅收紧尺寸适配顶栏高度 */
+.topbar-input {
+  width: 300px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.topbar-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.help-icon {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 50%;
 }
 @media (max-width: 980px) {
   .topbar {
@@ -626,7 +758,7 @@ const naiveTheme = {
   font-size: 12.5px;
   color: var(--fd-ink-600);
   background: var(--fd-accent-50);
-  border: 1px solid var(--fd-accent-200);
+  border: 1.5px solid var(--fd-accent-200);
   border-radius: var(--fd-r-sm);
   padding: 8px 12px;
 }
@@ -635,23 +767,44 @@ const naiveTheme = {
   flex-direction: column;
   gap: 8px;
 }
+.settings-form > .fd-input {
+  box-sizing: border-box;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.key-field { position: relative; display: flex; align-items: center; }
+.key-field .fd-input {
+  box-sizing: border-box;
+  padding-right: 64px;
+}
+.key-toggle {
+  position: absolute;
+  right: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
 .reasoning-row {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-.reasoning-select {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-}
 .test-result {
   font-size: 12.5px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border: var(--fd-border);
+  border-radius: var(--fd-r-sm);
+  box-shadow: var(--fd-e1);
 }
-.test-result.ok { color: #2e7d50; background: #e3f3e9; }
-.test-result.bad { color: #a63d3d; background: #fbe6e6; }
+.test-result.ok {
+  color: #2e7d50;
+  background: #e3f3e9;
+  border-color: var(--fd-ok);
+}
+.test-result.bad {
+  color: #a63d3d;
+  background: #fbe6e6;
+  border-color: var(--fd-danger);
+}
 
 .center {
   flex: 1;
@@ -785,13 +938,68 @@ const naiveTheme = {
   border: var(--fd-border);
   border-radius: var(--fd-r-lg);
   box-shadow: var(--fd-e3);
-  border-bottom-right-radius: var(--fd-r-sm);
 }
 .modal-wide { width: 460px; }
+.help-modal { width: 560px; max-height: 84vh; }
+.help-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 6px;
+  font-size: 13px;
+  color: var(--fd-ink-600);
+}
+.help-body :deep(h1) { font-size: 17px; margin: 0 0 6px; color: var(--fd-ink-900); }
+.help-body :deep(h2) {
+  font-size: 14px;
+  margin: 18px 0 6px;
+  color: var(--fd-accent-600);
+}
+.help-body :deep(p) { margin: 6px 0; line-height: 1.7; }
+.help-body :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
+.help-body :deep(li) { margin: 4px 0; line-height: 1.7; }
+.help-body :deep(strong) { color: var(--fd-ink-900); }
+.help-body :deep(code) {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  background: var(--fd-accent-50);
+  border: 1px solid var(--fd-accent-200);
+  border-radius: var(--fd-r-sm);
+  padding: 1px 5px;
+}
+.help-body :deep(blockquote) {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--fd-accent-50);
+  border-left: 3px solid var(--fd-accent-500);
+  border-radius: var(--fd-r-sm);
+  color: var(--fd-ink-600);
+}
+.help-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12.5px;
+}
+.help-body :deep(th),
+.help-body :deep(td) {
+  border: 1px solid var(--fd-accent-200);
+  padding: 6px 10px;
+  text-align: left;
+}
+.help-body :deep(th) { background: var(--fd-accent-50); color: var(--fd-ink-900); }
+.modal-input {
+  box-sizing: border-box;
+  font-size: 13px;
+}
+.fd-btn-tiny {
+  padding: 4px 10px;
+  font-size: 12px;
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .archive-empty {
   color: var(--fd-ink-400);
@@ -816,7 +1024,7 @@ const naiveTheme = {
   height: 26px;
   flex: none;
   border: var(--fd-border);
-  border-radius: 8px 8px 8px 3px;
+  border-radius: var(--fd-r-sm);
   box-shadow: var(--fd-e1);
 }
 .archive-meta {

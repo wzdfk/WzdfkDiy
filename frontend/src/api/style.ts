@@ -134,10 +134,10 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     base_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
     model: 'glm-5.3-flash',
     reasoning_options: [
-      { value: 'auto', label: '不指定（跟随模型默认）' },
-      { value: 'low', label: '低强度 low' },
-      { value: 'high', label: '高强度 high' },
-      { value: 'max', label: '最大强度 max' },
+      { value: 'auto', label: 'default' },
+      { value: 'low', label: 'low' },
+      { value: 'high', label: 'high' },
+      { value: 'max', label: 'max' },
     ],
   },
   {

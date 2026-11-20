@@ -169,7 +169,7 @@ function quick(text: string) {
         v-model="promptText"
         class="fd-input composer-input"
         rows="2"
-        :placeholder="badges.length ? '补充你想强调的细节，或者直接开始…（Enter 发送，Shift+Enter 换行）' : '描述风格或说「再柔和一点」…（Enter 发送，Shift+Enter 换行）'"
+        :placeholder="badges.length ? '补充你想强调的细节，或者直接开始…（Enter 发送，Shift+Enter 换行）' : '描述想要的风格或用下方按钮微调…（Enter 发送，Shift+Enter 换行）'"
         :disabled="store.busy"
         @keydown.enter.exact.prevent="submit()"
       ></textarea>

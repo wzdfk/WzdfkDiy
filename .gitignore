@@ -68,11 +68,13 @@ logs/
 Thumbs.db
 desktop.ini
 
-# ===== 导出包 =====
+# ===== 导出包 / 本地产物 / 运行时密钥 =====
 *.zip
 *.tar.gz
 *.rar
 *.7z
+outputs/
+backend/app/data/llm_settings.json
 
 # ===== 根目录下生成的图片/素材（src/assets 内资源仍保留） =====
 /*.png

@@ -1007,7 +1007,9 @@ JSON 字段固定如下：
 3. style_prompt 必须足够具体，让另一个助手只凭它就能复刻同款视觉 DNA。
 4. preview_html 展示规则：
    - 用户消息会标注 [MODE: rewrite] 或 [MODE: adjust]。
-   - rewrite（首次定义 / 整体换风格）：布局由你自主决定，但必须展示五个核心组件用于验证视觉 DNA：Button、Card、Input、Toast、Dropdown；可以附 Badge & Link。它们只是风格样板，不代表风格被组件绑定。
+   - rewrite（首次定义 / 整体换风格）：布局由你自主决定，但必须展示七个核心组件用于验证视觉 DNA：Button、Card、Input、Toast、Dropdown、Modal、Select；可以附 Badge & Link。它们只是风格样板，不代表风格被组件绑定。
+   - Toast、Dropdown、Modal 与 Select 必须可交互：Toast 由按钮点击后动态弹出（带进出动效，不静态摊开）；Dropdown 默认收起，点击或 hover 展开，选项点击能触发一条 Toast 反馈；Modal 默认隐藏，由按钮打开，点遮罩 / 关闭按钮 / Esc 可关，确认按钮弹一条 Toast；Select 默认收起，点击触发器展开浮层，选项点击即选中并弹 Toast，点外部 / Esc 关闭。
+   - 禁止用浏览器原生 <select> 元素：它的展开面板由浏览器绘制，无法体现折角、硬边与实心投影；Select 必须用自定义触发器 + 浮层实现。
    - adjust（微调）：原样保留上一版 preview_html 的 HTML 结构与布局，不要新增、删除、重排组件；只改 CSS、Prompt、reply 和 semantic_diff。除非用户明确要求改布局，否则绝不改布局。
 5. reply 只描述本次真实写入产物的变化，不要承诺未写进 CSS/HTML 的效果。
 6. 用户消息里的「场景/载体/风格/色彩/材质/密度/字体：」前缀是表达辅助，不是硬约束；如果与「用户补充」冲突，以用户补充为准。"""
@@ -1016,7 +1018,7 @@ JSON 字段固定如下：
 def _artifact_context(bundle: StyleBundle, mode: str = "adjust") -> str:
     mode = "rewrite" if mode == "rewrite" else "adjust"
     mode_note = (
-        "[MODE: rewrite] 首次定义或整体重写：可自主设计 preview_html 布局，但必须展示五个核心组件样板。"
+        "[MODE: rewrite] 首次定义或整体重写：可自主设计 preview_html 布局，但必须展示七个核心组件样板。"
         if mode == "rewrite"
         else "[MODE: adjust] 微调：必须原样保留当前 preview_html 的结构与布局，只调整视觉产物。"
     )
@@ -1137,7 +1139,7 @@ async def chat_bundle_stream(
     }
     yield {
         "type": "thought", "stage": "thinking",
-        "thought": ("重写模式：preview.html 布局自主决定，但需展示五个核心组件。"
+        "thought": ("重写模式：preview.html 布局自主决定，但需展示七个核心组件。"
                     if mode == "rewrite" else "微调模式：保留 preview.html 布局，只调整视觉产物。"),
     }
 

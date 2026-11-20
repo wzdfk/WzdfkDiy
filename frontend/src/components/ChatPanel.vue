@@ -101,7 +101,7 @@ function elapsedLabel(msg: ChatMessage) {
           描述你想要的风格，比如：<br>
           <em>「天青色主题，柔和干净，低饱和，适度圆角，纤细线条，无强烈渐变，简约清爽」</em>
         </p>
-        <p style="margin-top:8px;">发送后进入多轮优化，随时说「再柔和一点」这类模糊指令。</p>
+        <p style="margin-top:8px;">之后可以进入多轮优化，使用「再柔和一点」这类指令打磨细节。</p>
       </div>
 
       <template v-for="(msg, i) in store.messages" :key="i">
