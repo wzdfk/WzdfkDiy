@@ -5,11 +5,14 @@ import asyncio
 import io
 import json
 import logging
+import shutil
 import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..core import db as archive_db
 from ..core import llm
@@ -168,16 +171,13 @@ def preview_css():
     }
 
 
-@router.post("/export")
-def export_style(payload: dict | None = None):
-    """导出固定结构 zip：manifest + Prompt + preview + CSS + 溯源文件。"""
+def _build_export_zip() -> tuple[io.BytesIO, str, str]:
+    """打包当前风格，返回（zip 字节流, 文件名, 时间戳）。"""
     bundle = _session["default"]
     logger.info("导出风格包 name=%r", bundle.meta.name)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     safe_name = "".join(c for c in bundle.meta.name if c.isalnum() or c in "·-") or "style"
-    from urllib.parse import quote
-    ascii_name = f"uidiy-style-{stamp}.zip"                       # 兼容 latin-1 头
-    utf8_name = quote(f"{safe_name}-{stamp}.zip")                 # RFC 5987
+    file_name = f"{safe_name}-{stamp}.zip"
 
     files = build_export_files(bundle)
     buf = io.BytesIO()
@@ -185,6 +185,15 @@ def export_style(payload: dict | None = None):
         for name, content in files.items():
             zf.writestr(name, content)
     buf.seek(0)
+    return buf, file_name, stamp
+
+
+@router.post("/export")
+def export_style(payload: dict | None = None):
+    """导出固定结构 zip：manifest + Prompt + preview + CSS + 溯源文件。"""
+    buf, file_name, stamp = _build_export_zip()
+    ascii_name = f"uidiy-style-{stamp}.zip"   # 兼容 latin-1 头
+    utf8_name = quote(file_name)               # RFC 5987
 
     return StreamingResponse(
         buf,
@@ -193,6 +202,30 @@ def export_style(payload: dict | None = None):
             "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
         },
     )
+
+
+@router.post("/export/save")
+def export_style_to_dir(payload: dict):
+    """把产物包写入本地指定目录，返回实际文件路径。"""
+    raw_dir = str(payload.get("output_dir") or "").strip()
+    if not raw_dir:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "输出路径不能为空"})
+    target = Path(raw_dir).expanduser()
+    if not target.is_absolute():
+        return JSONResponse(status_code=400, content={"ok": False, "error": "输出路径需为绝对路径"})
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        if not target.is_dir():
+            raise NotADirectoryError(target)
+        buf, file_name, _ = _build_export_zip()
+        dest = target / file_name
+        with dest.open("wb") as f:
+            shutil.copyfileobj(buf, f)
+    except OSError as exc:
+        logger.warning("写出产物包失败 dir=%r err=%s", raw_dir, exc)
+        return JSONResponse(status_code=400, content={"ok": False, "error": f"写入失败：{exc}"})
+
+    return {"ok": True, "path": str(dest.resolve()), "file_name": file_name}
 
 
 # ---------- 风格档案持久化（MySQL，M4） ----------

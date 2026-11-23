@@ -123,6 +123,7 @@ export interface ProviderPreset {
   label: string
   base_url: string
   model: string
+  models: string[]
   reasoning_options: ReasoningOption[]
   hint?: string
 }
@@ -133,6 +134,7 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     label: '智谱 GLM',
     base_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
     model: 'glm-5.3-flash',
+    models: ['glm-5.3-flash', 'glm-4-flash', 'glm-4-plus', 'glm-4-air', 'glm-4-airx'],
     reasoning_options: [
       { value: 'auto', label: 'default' },
       { value: 'low', label: 'low' },
@@ -144,7 +146,8 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     value: 'deepseek',
     label: 'DeepSeek',
     base_url: 'https://api.deepseek.com/v1/chat/completions',
-    model: 'deepseek-chat',
+    model: 'deepseek-flash',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
     reasoning_options: [
       { value: 'auto', label: '不指定（跟随模型默认）' },
       { value: 'none', label: '关闭思考 none' },
@@ -158,6 +161,7 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     label: 'OpenAI / Azure OpenAI 兼容',
     base_url: 'https://api.openai.com/v1/chat/completions',
     model: 'gpt-5',
+    models: ['gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4o-mini', 'o3-mini'],
     reasoning_options: [
       { value: 'auto', label: '不指定（跟随模型默认）' },
       { value: 'none', label: '极简 minimal' },
@@ -171,7 +175,8 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     value: 'moonshot',
     label: 'Moonshot / Kimi',
     base_url: 'https://api.moonshot.cn/v1/chat/completions',
-    model: 'moonshot-v1-8k',
+    model: 'kimi-k3.1-pro',
+    models: ['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3'],
     reasoning_options: [{ value: 'auto', label: '不指定（跟随模型默认）' }],
     hint: '未验证思考强度字段，默认不指定。',
   },
@@ -179,7 +184,8 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     value: 'qwen',
     label: '通义千问 OpenAI 兼容',
     base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-    model: 'qwen-plus',
+    model: 'qwen3.7-plus',
+    models: ['qwen3.7-plus', 'qwen3.8-flash', 'qwen4-max'],
     reasoning_options: [{ value: 'auto', label: '不指定（跟随模型默认）' }],
     hint: '未验证思考强度字段，默认不指定。',
   },
@@ -188,6 +194,7 @@ export const LLM_PROVIDERS: ProviderPreset[] = [
     label: '自定义 OpenAI 兼容',
     base_url: '',
     model: '',
+    models: [],
     reasoning_options: [{ value: 'auto', label: '不指定（跟随模型默认）' }],
     hint: '自定义接口默认不指定思考强度。',
   },
@@ -237,19 +244,47 @@ export const testLlm = () =>
     '/settings/llm/test',
   ).then(r => r.data)
 
+export interface ModelListResult {
+  ok: boolean
+  models: string[]
+  url?: string
+  error?: string
+}
+
+/** 从供应商 OpenAI 兼容 /models 接口拉取可用模型 */
+export const listLlmModels = (data: { base_url: string; api_key?: string }) =>
+  http.post<ModelListResult>('/settings/llm/models', data).then(r => r.data)
+
 /** 重置为系统默认产物包 */
 export const resetStyle = () => http.post<StyleBundle>('/style/reset').then(r => r.data)
 
 /** 切换到零装饰产物包基线 */
 export const useBlankTemplate = () => http.post<StyleBundle>('/style/blank').then(r => r.data)
 
-/** 导出固定结构产物包 zip */
-export async function exportZip(fileName: string): Promise<void> {
+/** 导出固定结构产物包 zip（返回 blob，供文件选择器写入） */
+export async function exportZip(): Promise<Blob> {
   const res = await http.post('/style/export', null, { responseType: 'blob' })
-  const url = URL.createObjectURL(res.data as Blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = fileName
-  a.click()
-  URL.revokeObjectURL(url)
+  return res.data as Blob
 }
+
+export interface ExportSaveResult {
+  ok: boolean
+  path: string
+  file_name: string
+  error?: string
+}
+
+/** 由本地后端把产物包写入指定目录 */
+export const saveExportToDir = (outputDir: string) =>
+  http.post<ExportSaveResult>('/style/export/save', { output_dir: outputDir }).then(r => r.data)
+
+export interface PickDirResult {
+  ok: boolean
+  selected: boolean
+  path: string
+  error?: string
+}
+
+/** 打开本地原生目录选择框 */
+export const pickDirectory = () =>
+  http.post<PickDirResult>('/settings/pick-dir').then(r => r.data)

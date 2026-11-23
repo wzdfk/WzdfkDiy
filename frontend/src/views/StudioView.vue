@@ -8,6 +8,9 @@ import {
   getLlmSettings,
   getProviderPreset,
   inferLlmProvider,
+  listLlmModels,
+  pickDirectory,
+  saveExportToDir,
   saveLlmSettings,
   testLlm,
   type LlmProvider,
@@ -20,7 +23,8 @@ import StylePreview from '../components/StylePreview.vue'
 import FdSelect from '../components/FdSelect.vue'
 import helpMd from '../assets/帮助文档.md?raw'
 import { toast } from '../composables/toast'
-import { themeMode, toggleTheme } from '../composables/theme'
+import { setThemePreference, themeMode, themePreference, toggleTheme, type ThemePreference } from '../composables/theme'
+import { DEFAULT_OUTPUT_DIR, systemSettings, updateSystemSettings } from '../composables/systemSettings'
 
 const store = useStyleStore()
 const activeTab = ref('chat')
@@ -271,10 +275,102 @@ const savePlaceholder = computed(() =>
 
 onMounted(() => store.init())
 
+type SaveFilePicker = (options: {
+  suggestedName?: string
+  types?: { description: string; accept: Record<string, string[]> }[]
+}) => Promise<{
+  createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>
+}>
+
+function getSaveFilePicker(): SaveFilePicker | undefined {
+  return (window as Window & { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker
+}
+
+function errorText(err: unknown): string {
+  const e = err as {
+    message?: string
+    response?: { data?: { error?: string; detail?: string } }
+  }
+  return e.response?.data?.error ?? e.response?.data?.detail ?? e.message ?? '未知错误'
+}
+
+const pickingDir = ref(false)
+
+async function chooseDirectory(apply: (path: string) => void) {
+  pickingDir.value = true
+  try {
+    const res = await pickDirectory()
+    if (!res.ok || !res.selected) {
+      if (res.error && res.error !== '已取消或未选择目录') toast.error(`选择目录失败：${res.error}`)
+      return
+    }
+    apply(res.path)
+  } catch (err) {
+    toast.error(`选择目录失败：${errorText(err)}`)
+  } finally {
+    pickingDir.value = false
+  }
+}
+
+const exportPathDialogOpen = ref(false)
+const exportPathInput = ref('')
+const exportSaving = ref(false)
+
 async function doExport() {
-  const name = store.bundle?.meta.name ?? 'style'
-  await exportZip(`${name}.zip`)
-  toast.success('产物包已导出：manifest + Prompt + preview + CSS + 溯源文件')
+  const fileName = `${store.bundle?.meta.name ?? 'style'}.zip`
+  try {
+    if (!systemSettings.value.askBeforeExport) {
+      const dir = systemSettings.value.outputDir.trim() || DEFAULT_OUTPUT_DIR
+      const res = await saveExportToDir(dir)
+      toast.success(`产物包已导出到：${res.path}`)
+      return
+    }
+
+    const blob = await exportZip()
+    const picker = getSaveFilePicker()
+    if (picker) {
+      try {
+        const handle = await picker({
+          suggestedName: fileName,
+          types: [{ description: 'ZIP 产物包', accept: { 'application/zip': ['.zip'] } }],
+        })
+        const writable = await handle.createWritable()
+        await writable.write(blob)
+        await writable.close()
+        toast.success('产物包已保存到所选位置')
+      } catch (err) {
+        if ((err as { name?: string })?.name !== 'AbortError') throw err
+      }
+      return
+    }
+
+    exportPathInput.value = ''
+    exportPathDialogOpen.value = true
+  } catch (err) {
+    toast.error(`导出失败：${errorText(err)}`)
+  }
+}
+
+function pickExportDir() {
+  void chooseDirectory(path => { exportPathInput.value = path })
+}
+
+async function confirmExportPath() {
+  const dir = exportPathInput.value.trim()
+  if (!dir) {
+    toast.warning('请先选择输出目录')
+    return
+  }
+  exportSaving.value = true
+  try {
+    const res = await saveExportToDir(dir)
+    exportPathDialogOpen.value = false
+    toast.success(`产物包已导出到：${res.path}`)
+  } catch (err) {
+    toast.error(`导出失败：${errorText(err)}`)
+  } finally {
+    exportSaving.value = false
+  }
 }
 
 function openSave() {
@@ -334,8 +430,28 @@ async function doUseBlank() {
   }
 }
 
-// —— 设置（左下角入口 · LLM 接入配置） ——
+// —— 设置（左下角入口 · 系统设置 / 模型设置） ——
 const showSettings = ref(false)
+type SettingsTab = 'system' | 'model'
+const settingsTab = ref<SettingsTab>('system')
+const themeOptions: { value: ThemePreference; label: string; hint: string }[] = [
+  { value: 'light', label: '明亮', hint: '始终使用浅色' },
+  { value: 'dark', label: '暗黑', hint: '始终使用深色' },
+  { value: 'system', label: '跟随系统', hint: '默认，随系统切换' },
+]
+const systemDraft = ref({ ...systemSettings.value })
+
+function pickSystemDir() {
+  void chooseDirectory(path => { systemDraft.value.outputDir = path })
+}
+
+function saveSystemSettings() {
+  const outputDir = systemDraft.value.outputDir.trim() || DEFAULT_OUTPUT_DIR
+  updateSystemSettings({ outputDir, askBeforeExport: systemDraft.value.askBeforeExport })
+  systemDraft.value = { ...systemSettings.value }
+  toast.success('系统设置已保存')
+}
+
 const llmCfg = ref<LlmSettings>({
   provider: 'zhipu',
   base_url: '', model: '', reasoning_effort: 'auto', key_masked: '', has_key: false, enabled: false,
@@ -348,6 +464,41 @@ const llmTestResult = ref<{ ok: boolean; text: string } | null>(null)
 const llmSaving = ref(false)
 const providerPreset = computed(() => getProviderPreset(llmCfg.value.provider))
 const reasoningOptions = computed(() => providerPreset.value.reasoning_options)
+const isCustomProvider = computed(() => llmCfg.value.provider === 'custom')
+const remoteModels = ref<string[]>([])
+const modelsLoading = ref(false)
+const modelsHint = ref('')
+const modelOptions = computed(() => {
+  const values = [llmCfg.value.model, ...providerPreset.value.models, ...remoteModels.value]
+  return [...new Set(values.filter(Boolean))].map(value => ({ label: value, value }))
+})
+
+async function refreshModels() {
+  modelsLoading.value = true
+  modelsHint.value = ''
+  try {
+    const res = await listLlmModels({
+      base_url: llmCfg.value.base_url,
+      api_key: keyInput.value || undefined,
+    })
+    if (res.ok && res.models.length) {
+      remoteModels.value = res.models
+      modelsHint.value = `已从供应商获取 ${res.models.length} 个模型`
+    } else {
+      remoteModels.value = []
+      modelsHint.value = '供应商未返回可用模型，显示内置常用模型。'
+    }
+  } catch {
+    remoteModels.value = []
+    modelsHint.value = '模型列表请求失败，显示内置常用模型。'
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+function onModelChange(value: string) {
+  llmCfg.value.model = value
+}
 
 function applyProvider(provider: LlmProvider, fillModel = true) {
   const preset = getProviderPreset(provider)
@@ -362,6 +513,8 @@ function applyProvider(provider: LlmProvider, fillModel = true) {
 
 function onProviderChange(value: string) {
   applyProvider(value as LlmProvider)
+  remoteModels.value = []
+  void refreshModels()
 }
 
 function onReasoningChange(value: string) {
@@ -369,6 +522,7 @@ function onReasoningChange(value: string) {
 }
 
 async function openSettings() {
+  systemDraft.value = { ...systemSettings.value }
   showSettings.value = true
   llmTestResult.value = null
   keyInput.value = ''
@@ -379,6 +533,7 @@ async function openSettings() {
       applyProvider(inferLlmProvider(cfg.base_url, cfg.model), false)
     }
     llmLoaded.value = true
+    void refreshModels()
   } catch {
     toast.error('读取设置失败')
   }
@@ -496,7 +651,7 @@ const naiveTheme = computed(() => ({
             <ChatPanel />
           </div>
           <button class="settings-entry fd-btn fd-btn-ghost" @click="openSettings">
-            ⚙ 设置 <small>· AI 接入</small>
+            ⚙ 设置
           </button>
         </section>
 
@@ -659,75 +814,187 @@ const naiveTheme = computed(() => ({
         </div>
       </n-modal>
       
-      <!-- 设置弹窗（LLM 接入） -->
+      <!-- 设置弹窗（系统设置 / 模型设置） -->
       <n-modal v-model:show="showSettings" :auto-focus="false">
-        <div class="fd-card modal-card modal-wide">
-          <h2 class="fd-title">大模型配置</h2>
-          <p class="settings-hint">
-            OpenAI 兼容接口均可（智谱 GLM / DeepSeek / OpenAI…）。
-            AI 未配置或调用失败时，自动兜底为内置风格词典。
-          </p>
+        <div class="fd-card modal-card settings-modal">
+          <h2 class="fd-title">设置</h2>
+          <div class="settings-tabs">
+            <button
+              class="settings-tab"
+              :class="{ active: settingsTab === 'system' }"
+              @click="settingsTab = 'system'"
+            >系统设置</button>
+            <button
+              class="settings-tab"
+              :class="{ active: settingsTab === 'model' }"
+              @click="settingsTab = 'model'"
+            >模型设置</button>
+          </div>
 
-          <div v-if="llmLoaded" class="settings-form">
-            <label class="fd-label">厂商 PROVIDER</label>
-            <FdSelect
-              :model-value="llmCfg.provider"
-              :options="LLM_PROVIDERS"
-              @update:model-value="onProviderChange"
-            />
-
-            <label class="fd-label">接口地址 BASE_URL</label>
-            <input
-              v-model="llmCfg.base_url"
-              class="fd-input"
-              placeholder="选择厂商后自动填入"
-            />
-
-            <label class="fd-label">模型 MODEL</label>
-            <input
-              v-model="llmCfg.model"
-              class="fd-input"
-              placeholder="选择厂商后自动填入"
-            />
-
-            <label class="fd-label">API KEY</label>
-            <div class="key-field">
-              <input
-                v-model="keyInput"
-                class="fd-input"
-                :type="showKey ? 'text' : 'password'"
-                :placeholder="llmCfg.has_key ? `已配置（${llmCfg.key_masked}），留空保持不变` : '粘贴你的 key'"
-              />
-              <button
-                class="fd-btn fd-btn-ghost key-toggle"
-                type="button"
-                :title="showKey ? '隐藏 key' : '显示 key'"
-                @click="showKey = !showKey"
-              >{{ showKey ? '隐藏' : '显示' }}</button>
+          <div v-if="settingsTab === 'system'" class="settings-form">
+            <div class="settings-section">
+              <h3 class="settings-section-title">偏好设置</h3>
+              <p class="settings-hint">主题即时生效；默认跟随系统。</p>
+              <div class="theme-options">
+                <button
+                  v-for="opt in themeOptions"
+                  :key="opt.value"
+                  class="theme-option"
+                  :class="{ active: themePreference === opt.value }"
+                  @click="setThemePreference(opt.value)"
+                >
+                  <span class="theme-option-label">{{ opt.label }}</span>
+                  <small>{{ opt.hint }}</small>
+                </button>
+              </div>
             </div>
 
-            <label class="fd-label">思考强度 REASONING EFFORT</label>
-            <FdSelect
-              :model-value="llmCfg.reasoning_effort"
-              :options="reasoningOptions"
-              @update:model-value="onReasoningChange"
-            />
-            <div v-if="providerPreset.hint" class="settings-hint">{{ providerPreset.hint }}</div>
-
-            <div v-if="llmTestResult" class="test-result" :class="llmTestResult.ok ? 'ok' : 'bad'">
-              {{ llmTestResult.ok ? '✓ ' : '✗ ' }}{{ llmTestResult.text }}
-            </div>
-
-            <div class="modal-actions">
-              <button class="fd-btn" :disabled="llmTesting" @click="doTestLlm">
-                {{ llmTesting ? '测试中…' : '测试连接' }}
-              </button>
-              <button class="fd-btn fd-btn-primary" :disabled="llmSaving" @click="doSaveLlm">
-                {{ llmSaving ? '保存中…' : '保存' }}
-              </button>
+            <div class="settings-section">
+              <h3 class="settings-section-title">产物输出路径</h3>
+              <label class="fd-label">默认输出路径</label>
+              <div class="path-field">
+                <input
+                  :value="systemDraft.outputDir || DEFAULT_OUTPUT_DIR"
+                  class="fd-input"
+                  readonly
+                />
+                <button
+                  class="fd-btn fd-btn-ghost path-pick"
+                  type="button"
+                  :disabled="pickingDir"
+                  @click="pickSystemDir"
+                >{{ pickingDir ? '选择中…' : '选择…' }}</button>
+              </div>
+              <div class="settings-check-row">
+                <label class="settings-check">
+                  <input v-model="systemDraft.askBeforeExport" type="checkbox" />
+                  每次导出前询问
+                </label>
+                <span
+                  class="hint-mark"
+                  tabindex="0"
+                  title="勾选后忽略默认路径，每次导出都选择位置；未勾选时保存到上方路径。"
+                >?</span>
+              </div>
+              <div class="modal-actions">
+                <button class="fd-btn fd-btn-primary" @click="saveSystemSettings">保存系统设置</button>
+              </div>
             </div>
           </div>
-          <div v-else class="archive-empty">加载中…</div>
+
+          <div v-else class="settings-form">
+            <h3 class="settings-section-title">大模型配置</h3>
+            <p class="settings-hint">
+              OpenAI 兼容接口均可（智谱 GLM / DeepSeek / OpenAI…）。
+              AI 未配置或调用失败时，自动兜底为内置风格词典。
+            </p>
+
+            <div v-if="llmLoaded">
+              <label class="fd-label">厂商 PROVIDER</label>
+              <FdSelect
+                :model-value="llmCfg.provider"
+                :options="LLM_PROVIDERS"
+                @update:model-value="onProviderChange"
+              />
+
+              <label class="fd-label">接口地址 BASE_URL</label>
+              <input
+                v-model="llmCfg.base_url"
+                class="fd-input"
+                placeholder="选择厂商后自动填入"
+              />
+
+              <label class="fd-label">模型 MODEL</label>
+              <div class="model-field">
+                <FdSelect
+                  v-if="!isCustomProvider"
+                  :model-value="llmCfg.model"
+                  :options="modelOptions"
+                  placeholder="选择模型"
+                  @update:model-value="onModelChange"
+                />
+                <input
+                  v-else
+                  v-model="llmCfg.model"
+                  class="fd-input"
+                  placeholder="自定义模型 ID"
+                />
+                <button
+                  class="fd-btn fd-btn-ghost model-refresh"
+                  type="button"
+                  :disabled="modelsLoading"
+                  @click="refreshModels"
+                >{{ modelsLoading ? '拉取中…' : '刷新' }}</button>
+              </div>
+              <small v-if="modelsHint" class="models-hint">{{ modelsHint }}</small>
+
+              <label class="fd-label">API KEY</label>
+              <div class="key-field">
+                <input
+                  v-model="keyInput"
+                  class="fd-input"
+                  :type="showKey ? 'text' : 'password'"
+                  :placeholder="llmCfg.has_key ? `已配置（${llmCfg.key_masked}），留空保持不变` : '粘贴你的 key'"
+                />
+                <button
+                  class="fd-btn fd-btn-ghost key-toggle"
+                  type="button"
+                  :title="showKey ? '隐藏 key' : '显示 key'"
+                  @click="showKey = !showKey"
+                >{{ showKey ? '隐藏' : '显示' }}</button>
+              </div>
+
+              <label class="fd-label">思考强度 REASONING EFFORT</label>
+              <FdSelect
+                :model-value="llmCfg.reasoning_effort"
+                :options="reasoningOptions"
+                @update:model-value="onReasoningChange"
+              />
+              <div v-if="providerPreset.hint" class="settings-hint">{{ providerPreset.hint }}</div>
+
+              <div v-if="llmTestResult" class="test-result" :class="llmTestResult.ok ? 'ok' : 'bad'">
+                {{ llmTestResult.ok ? '✓ ' : '✗ ' }}{{ llmTestResult.text }}
+              </div>
+
+              <div class="modal-actions">
+                <button class="fd-btn" :disabled="llmTesting" @click="doTestLlm">
+                  {{ llmTesting ? '测试中…' : '测试连接' }}
+                </button>
+                <button class="fd-btn fd-btn-primary" :disabled="llmSaving" @click="doSaveLlm">
+                  {{ llmSaving ? '保存中…' : '保存' }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="archive-empty">加载中…</div>
+          </div>
+        </div>
+      </n-modal>
+
+      <!-- 导出位置输入（浏览器不支持原生保存对话框时的回退） -->
+      <n-modal v-model:show="exportPathDialogOpen" :auto-focus="false">
+        <div class="fd-card modal-card">
+          <h2 class="fd-title">选择导出位置</h2>
+          <p class="settings-hint">当前浏览器不支持原生保存对话框，请选择目标目录。</p>
+          <label class="fd-label">输出目录</label>
+          <div class="path-field">
+            <input
+              :value="exportPathInput || '请选择目录…'"
+              class="fd-input modal-input"
+              readonly
+            />
+            <button
+              class="fd-btn fd-btn-ghost path-pick"
+              type="button"
+              :disabled="pickingDir"
+              @click="pickExportDir"
+            >{{ pickingDir ? '选择中…' : '选择…' }}</button>
+          </div>
+          <div class="modal-actions">
+            <button class="fd-btn" @click="exportPathDialogOpen = false">取消</button>
+            <button class="fd-btn fd-btn-primary" :disabled="exportSaving" @click="confirmExportPath">
+              {{ exportSaving ? '导出中…' : '导出' }}
+            </button>
+          </div>
         </div>
       </n-modal>
     </div>
@@ -871,6 +1138,91 @@ const naiveTheme = computed(() => ({
   padding: 6px 12px;
   font-size: 13px;
 }
+.settings-modal { min-width: 760px; max-height: 86vh; overflow-y: auto; }
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 16px;
+  border-bottom: 1px solid var(--fd-accent-200);
+}
+.settings-tab {
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fd-ink-500, var(--fd-ink-600));
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-tab.active {
+  color: var(--fd-accent-600);
+  border-bottom-color: var(--fd-accent-500);
+  font-weight: 600;
+}
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--fd-accent-200);
+}
+.settings-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.settings-section-title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--fd-ink-900);
+}
+.settings-form .fd-input {
+  box-sizing: border-box;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.path-field { display: flex; align-items: center; gap: 8px; }
+.path-field .fd-input { flex: 1; min-width: 0; cursor: default; }
+.path-pick { flex: none; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.theme-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--fd-accent-200);
+  border-radius: var(--fd-r-sm);
+  background: var(--fd-paper);
+  color: var(--fd-ink-700, var(--fd-ink-600));
+  cursor: pointer;
+  text-align: left;
+}
+.theme-option.active { border-color: var(--fd-accent-500); background: var(--fd-accent-50); }
+.theme-option-label { font-size: 13px; font-weight: 600; color: var(--fd-ink-900); }
+.theme-option small { font-size: 11px; color: var(--fd-ink-400); }
+.settings-check-row { display: flex; align-items: center; gap: 4px; }
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fd-ink-900);
+  cursor: pointer;
+}
+.hint-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--fd-accent-300, var(--fd-accent-200));
+  border-radius: 50%;
+  color: var(--fd-accent-600);
+  font-size: 11px;
+  line-height: 1;
+  cursor: help;
+}
+.model-field { display: flex; align-items: center; gap: 8px; }
+.model-field .fd-select, .model-field .fd-input { flex: 1; min-width: 0; }
+.model-refresh { flex: none; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.models-hint { color: var(--fd-ink-400); font-size: 11px; }
 .key-field { position: relative; display: flex; align-items: center; }
 .key-field .fd-input {
   box-sizing: border-box;
@@ -1130,6 +1482,7 @@ const naiveTheme = computed(() => ({
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 12px;
 }
 .archive-empty {
   color: var(--fd-ink-400);

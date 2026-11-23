@@ -1,38 +1,47 @@
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
+export type ThemePreference = 'light' | 'dark' | 'system'
 export type ThemeMode = 'light' | 'dark'
 
 const STORAGE_KEY = 'uidiy.theme'
+const DEFAULT_PREFERENCE: ThemePreference = 'system'
 
-function readInitial(): ThemeMode {
+function readPreference(): ThemePreference {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved === 'light' || saved === 'dark') return saved
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
   } catch { /* 忽略存储异常 */ }
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return DEFAULT_PREFERENCE
 }
 
-export const themeMode = ref<ThemeMode>(readInitial())
+function readSystemMode(): ThemeMode {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
+}
+
+const systemQuery = typeof window !== 'undefined'
+  ? window.matchMedia?.('(prefers-color-scheme: dark)')
+  : undefined
+
+export const systemThemeMode = ref<ThemeMode>(readSystemMode())
+export const themePreference = ref<ThemePreference>(readPreference())
+export const themeMode = computed<ThemeMode>(() =>
+  themePreference.value === 'system' ? systemThemeMode.value : themePreference.value,
+)
 export const themeDirection = ref<'dark' | 'light'>('dark')
 
 function apply(mode: ThemeMode) {
   document.documentElement.setAttribute('data-theme', mode)
   document.documentElement.style.colorScheme = mode
+  themeDirection.value = mode
 }
 
-export function initTheme() {
-  apply(themeMode.value)
+function persist(preference: ThemePreference) {
+  try { localStorage.setItem(STORAGE_KEY, preference) } catch { /* 忽略存储异常 */ }
 }
 
-export function toggleTheme() {
-  const next: ThemeMode = themeMode.value === 'light' ? 'dark' : 'light'
-  themeDirection.value = next
-  const commit = () => {
-    apply(next)
-    themeMode.value = next
-    try { localStorage.setItem(STORAGE_KEY, next) } catch { /* 忽略存储异常 */ }
-  }
-
+function withTransition(commit: () => void) {
   const doc = document as Document & {
     startViewTransition?: (cb: () => void) => { finished: Promise<void> }
   }
@@ -41,4 +50,32 @@ export function toggleTheme() {
     return
   }
   doc.startViewTransition(commit)
+}
+
+let initialized = false
+
+export function initTheme() {
+  if (!initialized) {
+    initialized = true
+    const onSystemChange = (matches: boolean) => { systemThemeMode.value = matches ? 'dark' : 'light' }
+    if (systemQuery?.addEventListener) {
+      systemQuery.addEventListener('change', e => onSystemChange(e.matches))
+    } else {
+      systemQuery?.addListener?.(e => onSystemChange(e.matches))
+    }
+    watch(themeMode, mode => apply(mode), { flush: 'sync' })
+  }
+  apply(themeMode.value)
+}
+
+export function setThemePreference(next: ThemePreference) {
+  if (next !== 'light' && next !== 'dark' && next !== 'system') return
+  withTransition(() => {
+    themePreference.value = next
+    persist(next)
+  })
+}
+
+export function toggleTheme() {
+  setThemePreference(themeMode.value === 'light' ? 'dark' : 'light')
 }

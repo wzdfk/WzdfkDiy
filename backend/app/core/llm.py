@@ -104,6 +104,44 @@ def save_settings(
     return get_settings()
 
 
+def _models_endpoint(base: str) -> str:
+    """从 chat/completions 地址推导 OpenAI 兼容 /models 地址。"""
+    url = (base or "").strip().rstrip("/")
+    if not url:
+        return ""
+    lower = url.lower()
+    for suffix in ("/chat/completions", "/completions"):
+        if lower.endswith(suffix):
+            return url[: -len(suffix)] + "/models"
+    if lower.endswith("/models"):
+        return url
+    return f"{url}/models"
+
+
+def list_models(base_url: str | None = None, api_key: str | None = None) -> dict[str, Any]:
+    """拉取供应商可用模型列表；仅返回 id，不修改已保存设置。"""
+    cfg = _read_settings()
+    base = (base_url or "").strip() or str(cfg.get("base_url") or "") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL
+    key = (api_key or "").strip() or str(cfg.get("api_key") or "") or os.getenv("API_KEY") or ""
+    endpoint = _models_endpoint(base)
+    if not key:
+        return {"ok": False, "models": [], "url": endpoint, "error": "未配置 API Key"}
+    try:
+        r = httpx.get(endpoint, headers={"Authorization": f"Bearer {key}"}, timeout=20.0)
+        r.raise_for_status()
+        payload = r.json()
+        rows = payload.get("data") if isinstance(payload, dict) else payload
+        models: list[str] = []
+        if isinstance(rows, list):
+            for item in rows:
+                model_id = item.get("id") if isinstance(item, dict) else item
+                if isinstance(model_id, str) and model_id.strip():
+                    models.append(model_id.strip())
+        return {"ok": True, "models": sorted(set(models))[:200], "url": endpoint}
+    except Exception as e:
+        return {"ok": False, "models": [], "url": endpoint, "error": f"{e.__class__.__name__}: {e}"[:300]}
+
+
 # ---------- 凭据与底层调用 ----------
 
 
