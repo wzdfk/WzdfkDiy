@@ -1,9 +1,8 @@
 """UIDiy Agent · FastAPI 入口。
 
 启动（backend/ 目录下，任选其一）：
-  conda activate diy && python app/main.py      # 直接脚本启动
-  conda activate diy && python -m app.main      # 模块方式启动
-  conda activate diy && uvicorn app.main:app --reload --port 8300
+  conda activate diy && python main.py      # 直接脚本启动
+  conda activate diy && uvicorn main:app --reload --port 8300
 """
 from __future__ import annotations
 
@@ -15,8 +14,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-# 允许 python app/main.py 直接脚本运行：把 backend/ 挂进 sys.path
-_BASE_DIR = Path(__file__).resolve().parent.parent   # backend/
+# main.py 就在 backend/ 下；挂进 sys.path 后 `app.*` 才能被找到
+_BASE_DIR = Path(__file__).resolve().parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
 
@@ -87,7 +86,7 @@ if __name__ == "__main__":
     host, port = _server_addr()
     logger.info("UIDiy Agent → http://%s:%s  (docs at /docs)", host, port)
     uvicorn.run(
-        "app.main:app",
+        "main:app",
         host=host,
         port=port,
         reload=False,           # 开发热重载；生产可改 False

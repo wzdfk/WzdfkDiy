@@ -38,7 +38,7 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 cp .env.example .env          # Windows 用 copy .env.example .env
-python app/main.py            # 监听 127.0.0.1:8300
+python main.py                # 监听 127.0.0.1:8300
 ```
 
 接口文档：<http://127.0.0.1:8300/docs>　健康检查：<http://127.0.0.1:8300/api/health>
