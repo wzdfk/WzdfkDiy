@@ -87,6 +87,10 @@ backend/app/data/llm_settings.json
 
 # ===== IDE 工具数据（仅忽略，勿删除目录） =====
 .codebuddy/
+.workbuddy/
+
+# ===== README 截图：原始第 8 张含本机文件夹列表，使用脱敏裁剪版 8-export.png =====
+images/8.png
 
 # 保留：源码（.py/.ts/.vue/.css/.html/.j2）、配置（.json/.yaml）、
 #       文档（.md）、测试与验证脚本（.cjs）和前端静态资源仍正常入库。
