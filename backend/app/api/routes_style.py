@@ -78,7 +78,8 @@ def parse_style(payload: dict):
     logger.info("定义风格 prompt=%r", _brief(text))
     _push_snapshot()
     baseline = _session["default"].model_copy(deep=True)
-    bundle = llm.parse_prompt_bundle(text, baseline=baseline)
+    with llm.runtime_config(payload.get("llm")):
+        bundle = llm.parse_prompt_bundle(text, baseline=baseline)
     _session["default"] = bundle
     return bundle
 
@@ -93,7 +94,8 @@ def chat(payload: dict):
     logger.info("对话调整 mode=%s message=%r", mode, _brief(message))
     current = _session["default"].model_copy(deep=True)
     _push_snapshot()
-    bundle, diff, reply = llm.chat_bundle(current, message, history=history, mode=mode)
+    with llm.runtime_config(payload.get("llm")):
+        bundle, diff, reply = llm.chat_bundle(current, message, history=history, mode=mode)
     logger.info("对话完成 diff=%d 项", len(diff))
     _session["default"] = bundle
     return {"bundle": bundle, "diff": diff, "reply": reply}
@@ -108,24 +110,26 @@ async def chat_stream(payload: dict):
     mode = "rewrite" if mode == "rewrite" else "adjust"
     logger.info("流式对话 mode=%s message=%r", mode, _brief(message))
     current = _session["default"].model_copy(deep=True)
+    runtime = payload.get("llm")
 
     async def generate():
         final = None
-        try:
-            async for event in llm.chat_bundle_stream(current, message, history=history, mode=mode):
-                if event.get("type") == "done":
-                    final = event
-                yield _sse(event.get("type", "message"), event)
-            if final:
-                _push_snapshot()
-                _session["default"] = StyleBundle.model_validate(final["bundle"])
-                logger.info("流式对话完成 diff=%d 项", len(final.get("diff", [])))
-        except asyncio.CancelledError:
-            logger.info("流式对话被客户端终止，未写入半成品产物")
-            raise
-        except Exception as e:
-            logger.exception("流式对话失败")
-            yield _sse("error", {"type": "error", "message": f"{e.__class__.__name__}: {e}"})
+        with llm.runtime_config(runtime):
+            try:
+                async for event in llm.chat_bundle_stream(current, message, history=history, mode=mode):
+                    if event.get("type") == "done":
+                        final = event
+                    yield _sse(event.get("type", "message"), event)
+                if final:
+                    _push_snapshot()
+                    _session["default"] = StyleBundle.model_validate(final["bundle"])
+                    logger.info("流式对话完成 diff=%d 项", len(final.get("diff", [])))
+            except asyncio.CancelledError:
+                logger.info("流式对话被客户端终止，未写入半成品产物")
+                raise
+            except Exception as e:
+                logger.exception("流式对话失败")
+                yield _sse("error", {"type": "error", "message": f"{e.__class__.__name__}: {e}"})
 
     return StreamingResponse(
         generate(),

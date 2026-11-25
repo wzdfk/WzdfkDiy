@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="UIDIY：一句话定义你的 UI 风格，通过对话微调，导出可复刻的设计令牌、CSS、Prompt 与预览产物。">
+  <title>UIDIY · 一句话定义你的 UI 风格</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="UIDIY 首页">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>UIDIY</span>
+    </a>
+    <nav class="site-nav" aria-label="主导航">
+      <a href="#features">能力</a>
+      <a href="#preview">界面</a>
+      <a href="#start">快速开始</a>
+      <a href="#output">产物</a>
+      <a href="mailto:130240703@qq.com">联系</a>
+    </nav>
+    <a class="button small" href="https://github.com/wzdfk/WzdfkDiy" target="_blank" rel="noreferrer">GitHub 源码</a>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">LOCAL-FIRST · OPEN SOURCE · AI OPTIONAL</p>
+        <h1>一句话定义你的<br><span>UI 风格</span></h1>
+        <p class="hero-lead">
+          把「UI 风格抽卡」工程化。描述一个风格，用对话持续打磨，最后导出一套可直接交给 AI 复刻的产物包。
+          数据留在本地，Key 留在浏览器，产物由你自己保存。
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#start">开始使用</a>
+          <a class="button ghost" href="https://github.com/wzdfk/WzdfkDiy" target="_blank" rel="noreferrer">查看源码</a>
+        </div>
+        <p class="support-line">
+          如果好用，欢迎给仓库点个 Star；需要协助或想交流探讨，联系：<a href="mailto:130240703@qq.com">130240703@qq.com</a>
+        </p>
+        <ul class="hero-tags" aria-label="项目特性">
+          <li>Vue 3 · FastAPI</li>
+          <li>浏览器本地 Key</li>
+          <li>本地导出 zip</li>
+          <li>MIT License</li>
+        </ul>
+      </div>
+      <div class="hero-visual" aria-label="工作台截图">
+        <div class="window-bar"><span></span><span></span><span></span><b>UIDIY Studio</b></div>
+        <a href="images/1.png" target="_blank" rel="noreferrer">
+          <img src="images/1.png" alt="UIDIY 工作台浅色主题截图">
+        </a>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="section-head">
+        <p class="eyebrow">WHAT IT DOES</p>
+        <h2>从一句话，到可复刻的风格资产</h2>
+        <p>不是生成一张示意图，而是生成一组能被 AI 和工程共同使用的风格文件。</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <span class="feature-index">01</span>
+          <h3>一句话生成</h3>
+          <p>输入「蓝白玻璃质感，柔和投影」这类描述，即刻得到完整风格产物包。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-index">02</span>
+          <h3>多轮微调</h3>
+          <p>在对话里说「再柔和一点」「主色改成 #5b7c89」，改动映射到具体视觉维度。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-index">03</span>
+          <h3>所见即所导</h3>
+          <p>中间预览注入的就是产物包里的真实 CSS，不是另画一张展示图。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-index">04</span>
+          <h3>可复刻交付</h3>
+          <p>导出的 zip 交给任意新 AI 会话，按 Prompt 和 CSS 变量扩展新组件。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-index">05</span>
+          <h3>无 AI 也能用</h3>
+          <p>未配置模型时走内置风格词典，核心流程照常可用。</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-index">06</span>
+          <h3>本地优先</h3>
+          <p>Key 只存浏览器，产物导出到本地；项目不保存你的会话尝试记录。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="preview" class="section alt">
+      <div class="section-head">
+        <p class="eyebrow">SCREENSHOTS</p>
+        <h2>界面一览</h2>
+        <p>点击任意截图查看原图。</p>
+      </div>
+      <div class="gallery">
+        <a class="shot wide" href="images/1.png" target="_blank" rel="noreferrer">
+          <img src="images/1.png" alt="浅色主题工作台">
+          <div class="shot-caption"><b>浅色工作台</b><span>定义风格、对话、实时预览三栏协作</span></div>
+        </a>
+        <a class="shot" href="images/2.png" target="_blank" rel="noreferrer">
+          <img src="images/2.png" alt="深色主题工作台">
+          <div class="shot-caption"><b>暗黑主题</b><span>验证明暗设计令牌</span></div>
+        </a>
+        <a class="shot" href="images/3.png" target="_blank" rel="noreferrer">
+          <img src="images/3.png" alt="使用帮助弹窗">
+          <div class="shot-caption"><b>使用帮助</b><span>生成、微调、导出与复刻说明</span></div>
+        </a>
+        <a class="shot" href="images/4.png" target="_blank" rel="noreferrer">
+          <img src="images/4.png" alt="存档弹窗">
+          <div class="shot-caption"><b>存档</b><span>为当前风格命名保存</span></div>
+        </a>
+        <a class="shot" href="images/5.png" target="_blank" rel="noreferrer">
+          <img src="images/5.png" alt="档案库弹窗">
+          <div class="shot-caption"><b>档案库</b><span>加载、删除或切换空模板</span></div>
+        </a>
+        <a class="shot" href="images/6.png" target="_blank" rel="noreferrer">
+          <img src="images/6.png" alt="系统设置">
+          <div class="shot-caption"><b>系统设置</b><span>主题偏好与导出路径</span></div>
+        </a>
+        <a class="shot" href="images/7.png" target="_blank" rel="noreferrer">
+          <img src="images/7.png" alt="模型设置">
+          <div class="shot-caption"><b>模型设置</b><span>厂商、模型、Key 与思考强度</span></div>
+        </a>
+        <a class="shot" href="images/8-export.png" target="_blank" rel="noreferrer">
+          <img src="images/8-export.png" alt="导出保存位置">
+          <div class="shot-caption"><b>导出保存</b><span>选择产物包落盘位置</span></div>
+        </a>
+      </div>
+    </section>
+
+    <section id="start" class="section">
+      <div class="section-head">
+        <p class="eyebrow">QUICK START</p>
+        <h2>本地跑起来</h2>
+        <p>前置：Python 3.12+、Node.js 18+。MySQL 和 AI Key 都是可选项。</p>
+      </div>
+      <div class="start-grid">
+        <ol class="steps">
+          <li><b>克隆仓库</b><span>获取完整前后端源码与文档。</span></li>
+          <li><b>启动后端</b><span>安装依赖，复制 .env.example 为 .env，运行 main.py。</span></li>
+          <li><b>启动前端</b><span>npm install 后 npm run dev，打开 localhost:5180。</span></li>
+          <li><b>开始定义</b><span>输入一句话，观察预览，继续对话微调。</span></li>
+        </ol>
+        <pre class="code"><code>git clone https://github.com/wzdfk/WzdfkDiy.git
+cd WzdfkDiy/backend
+
+python -m venv .venv
+# Windows: .\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
+
+pip install -r requirements.txt
+cp .env.example .env
+python main.py
+
+# 另开终端
+cd ../frontend
+npm install
+npm run dev</code></pre>
+      </div>
+      <p class="note">MySQL 只用于「存档 / 档案」；不配置时仍可生成和导出。API Key 可在页面设置里填写，只保存在当前浏览器。</p>
+    </section>
+
+    <section id="output" class="section alt">
+      <div class="section-head">
+        <p class="eyebrow">EXPORT FORMAT</p>
+        <h2>导出即可交接</h2>
+        <p>产物包包含 8 个文件。复刻新组件时，只需要前 4 个。</p>
+      </div>
+      <div class="output-grid">
+        <article><code>STYLE_PROMPT.md</code><p>风格规范正文，AI 首要读取。</p></article>
+        <article><code>base.css</code><p><code>:root</code> 中的全部设计令牌。</p></article>
+        <article><code>style.css</code><p>组件样式规则与视觉签名。</p></article>
+        <article><code>preview.html</code><p>组件结构与类名示例。</p></article>
+      </div>
+      <p class="note">其余 <code>manifest.json</code>、<code>raw-llm.json</code>、<code>source-conversation.json</code>、<code>CHANGELOG.md</code> 是溯源文件，便于审计，不必交给复刻 AI。</p>
+    </section>
+
+    <section class="cta">
+      <div>
+        <p class="eyebrow">READY TO BUILD</p>
+        <h2>把风格从感觉，变成资产。</h2>
+        <p>源码、说明、截图都在 GitHub。如果 UIDIY 对你有帮助，请给仓库点个 Star；需要协助或想交流探讨，也欢迎联系 <a href="mailto:130240703@qq.com">130240703@qq.com</a>。</p>
+        <div class="cta-actions">
+          <a class="button primary light" href="https://github.com/wzdfk/WzdfkDiy" target="_blank" rel="noreferrer">打开 GitHub 仓库</a>
+          <a class="button outline light" href="mailto:130240703@qq.com">联系作者</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>UIDIY · Local-first UI style generator</span>
+    <span>
+      <a href="https://github.com/wzdfk/WzdfkDiy" target="_blank" rel="noreferrer">GitHub</a>
+      · <a href="mailto:130240703@qq.com">联系</a>
+      · MIT License
+    </span>
+  </footer>
+</body>
+</html>

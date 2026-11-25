@@ -29,49 +29,38 @@ if path:
 _PICK_DIR_MARKER = b"__PICKED_DIR__"
 
 
-class LlmSettingsIn(BaseModel):
+class LlmRuntimeIn(BaseModel):
+    """单次请求使用的 LLM 配置；不写盘，请求结束即丢弃。"""
     base_url: str = ""
     model: str = ""
-    api_key: str = ""       # 空 = 保留已存 key
+    api_key: str = ""
     reasoning_effort: str = "auto"
     provider: str = ""
 
 
 class LlmModelsIn(BaseModel):
     base_url: str = ""
-    api_key: str = ""       # 空 = 使用已保存 key
+    api_key: str = ""       # 空 = 使用请求级配置或环境变量
 
 
 @router.get("/llm")
 def get_llm_settings():
+    """仅返回默认值；门户模式 key_masked 为空。"""
     return llm.get_settings()
 
 
-@router.put("/llm")
-def put_llm_settings(payload: LlmSettingsIn):
-    logger.info(
-        "保存 LLM 设置 provider=%r base_url=%r model=%r reasoning_effort=%r",
-        payload.provider, payload.base_url, payload.model, payload.reasoning_effort,
-    )
-    return llm.save_settings(
-        payload.base_url,
-        payload.model,
-        payload.api_key or None,
-        payload.reasoning_effort,
-        payload.provider,
-    )
-
-
 @router.post("/llm/test")
-def test_llm():
-    logger.info("测试 LLM 连接")
-    return llm.test_connection()
+def test_llm(payload: LlmRuntimeIn):
+    logger.info("测试 LLM 连接 base_url=%r", payload.base_url)
+    with llm.runtime_config(payload.model_dump()):
+        return llm.test_connection()
 
 
 @router.post("/llm/probe-reasoning")
-def probe_reasoning():
-    logger.info("探测当前模型思考强度支持项")
-    return llm.probe_reasoning_options()
+def probe_reasoning(payload: LlmRuntimeIn):
+    logger.info("探测思考强度 base_url=%r", payload.base_url)
+    with llm.runtime_config(payload.model_dump()):
+        return llm.probe_reasoning_options()
 
 
 @router.post("/llm/models")

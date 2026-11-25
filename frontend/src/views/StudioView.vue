@@ -11,9 +11,9 @@ import {
   listLlmModels,
   pickDirectory,
   saveExportToDir,
-  saveLlmSettings,
   testLlm,
   type LlmProvider,
+  type LlmRuntime,
   type LlmSettings,
   type ReasoningEffort,
 } from '../api/style'
@@ -25,6 +25,7 @@ import helpMd from '../assets/帮助文档.md?raw'
 import { toast } from '../composables/toast'
 import { setThemePreference, themeMode, themePreference, toggleTheme, type ThemePreference } from '../composables/theme'
 import { DEFAULT_OUTPUT_DIR, systemSettings, updateSystemSettings } from '../composables/systemSettings'
+import { llmSettings, updateLlmSettings } from '../composables/llmSettings'
 
 const store = useStyleStore()
 const activeTab = ref('chat')
@@ -461,7 +462,17 @@ const keyInput = ref('')
 const showKey = ref(false)
 const llmTesting = ref(false)
 const llmTestResult = ref<{ ok: boolean; text: string } | null>(null)
-const llmSaving = ref(false)
+
+function currentLlmRuntime(): LlmRuntime {
+  return {
+    provider: llmCfg.value.provider,
+    base_url: llmCfg.value.base_url,
+    model: llmCfg.value.model,
+    reasoning_effort: llmCfg.value.reasoning_effort,
+    api_key: keyInput.value,
+  }
+}
+
 const providerPreset = computed(() => getProviderPreset(llmCfg.value.provider))
 const reasoningOptions = computed(() => providerPreset.value.reasoning_options)
 const isCustomProvider = computed(() => llmCfg.value.provider === 'custom')
@@ -525,12 +536,20 @@ async function openSettings() {
   systemDraft.value = { ...systemSettings.value }
   showSettings.value = true
   llmTestResult.value = null
-  keyInput.value = ''
   try {
     const cfg = await getLlmSettings()
-    llmCfg.value = cfg
-    if (!cfg.provider) {
-      applyProvider(inferLlmProvider(cfg.base_url, cfg.model), false)
+    const local = llmSettings.value
+    const hasLocal = !!(local.base_url || local.model || local.api_key)
+    llmCfg.value = {
+      ...cfg,
+      provider: hasLocal ? local.provider : cfg.provider,
+      base_url: hasLocal ? local.base_url : cfg.base_url,
+      model: hasLocal ? local.model : cfg.model,
+      reasoning_effort: hasLocal ? local.reasoning_effort : cfg.reasoning_effort,
+    }
+    keyInput.value = local.api_key
+    if (!llmCfg.value.provider) {
+      applyProvider(inferLlmProvider(llmCfg.value.base_url, llmCfg.value.model), false)
     }
     llmLoaded.value = true
     void refreshModels()
@@ -543,7 +562,7 @@ async function doTestLlm() {
   llmTesting.value = true
   llmTestResult.value = null
   try {
-    const r = await testLlm()
+    const r = await testLlm(currentLlmRuntime())
     llmTestResult.value = r.ok
       ? { ok: true, text: `连通正常 · ${r.latency_ms}ms · ${r.sample ?? ''}` }
       : { ok: false, text: r.error ?? '连接失败' }
@@ -554,24 +573,12 @@ async function doTestLlm() {
   }
 }
 
-async function doSaveLlm() {
-  llmSaving.value = true
-  try {
-    llmCfg.value = await saveLlmSettings({
-      provider: llmCfg.value.provider,
-      base_url: llmCfg.value.base_url,
-      model: llmCfg.value.model,
-      reasoning_effort: llmCfg.value.reasoning_effort,
-      api_key: keyInput.value,     // 空串 = 保留已存 key
-    })
-    keyInput.value = ''
-    llmTestResult.value = null
-    toast.success(`已保存 · AI 接入${llmCfg.value.enabled ? '已启用' : '未配置 key（将走内置词典兜底）'}`)
-  } catch {
-    toast.error('保存失败')
-  } finally {
-    llmSaving.value = false
-  }
+function doSaveLlm() {
+  updateLlmSettings(currentLlmRuntime())
+  llmTestResult.value = null
+  toast.success(keyInput.value
+    ? '已保存到当前浏览器（不会上传服务器）'
+    : '已保存到当前浏览器（Key 为空，将走内置词典兜底）')
 }
 
 /** 工作台顶栏的首次定义入口：提示词 → 初始档案 */
@@ -886,7 +893,7 @@ const naiveTheme = computed(() => ({
             <h3 class="settings-section-title">大模型配置</h3>
             <p class="settings-hint">
               OpenAI 兼容接口均可（智谱 GLM / DeepSeek / OpenAI…）。
-              AI 未配置或调用失败时，自动兜底为内置风格词典。
+              Key 只保存在当前浏览器，不会上传服务器；AI 未配置或调用失败时走内置风格词典。
             </p>
 
             <div v-if="llmLoaded">
@@ -934,7 +941,7 @@ const naiveTheme = computed(() => ({
                   v-model="keyInput"
                   class="fd-input"
                   :type="showKey ? 'text' : 'password'"
-                  :placeholder="llmCfg.has_key ? `已配置（${llmCfg.key_masked}），留空保持不变` : '粘贴你的 key'"
+                  :placeholder="llmSettings.api_key ? '本机已保存，留空则清空 Key' : '粘贴你的 key（仅保存在本浏览器）'"
                 />
                 <button
                   class="fd-btn fd-btn-ghost key-toggle"
@@ -943,6 +950,7 @@ const naiveTheme = computed(() => ({
                   @click="showKey = !showKey"
                 >{{ showKey ? '隐藏' : '显示' }}</button>
               </div>
+              <small v-if="llmSettings.api_key" class="models-hint">本机已保存 Key；留空点“保存到本机”可清除。</small>
 
               <label class="fd-label">思考强度 REASONING EFFORT</label>
               <FdSelect
@@ -960,9 +968,7 @@ const naiveTheme = computed(() => ({
                 <button class="fd-btn" :disabled="llmTesting" @click="doTestLlm">
                   {{ llmTesting ? '测试中…' : '测试连接' }}
                 </button>
-                <button class="fd-btn fd-btn-primary" :disabled="llmSaving" @click="doSaveLlm">
-                  {{ llmSaving ? '保存中…' : '保存' }}
-                </button>
+                <button class="fd-btn fd-btn-primary" @click="doSaveLlm">保存到本机</button>
               </div>
             </div>
             <div v-else class="archive-empty">加载中…</div>
@@ -1222,7 +1228,14 @@ const naiveTheme = computed(() => ({
 .model-field { display: flex; align-items: center; gap: 8px; }
 .model-field .fd-select, .model-field .fd-input { flex: 1; min-width: 0; }
 .model-refresh { flex: none; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
-.models-hint { color: var(--fd-ink-400); font-size: 11px; }
+.models-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--fd-ink-400);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.models-hint + .fd-label { margin-top: 8px; }
 .key-field { position: relative; display: flex; align-items: center; }
 .key-field .fd-input {
   box-sizing: border-box;

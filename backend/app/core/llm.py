@@ -14,8 +14,9 @@ import logging
 import os
 import re
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -31,8 +32,6 @@ from .bundle import (
 from .tokens import ControlBox, StyleTokens, blank_default, fold_default
 
 logger = logging.getLogger(__name__)
-
-_SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "llm_settings.json"
 
 _DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 _DEFAULT_MODEL = "glm-4-flash"
@@ -51,57 +50,42 @@ def _normalize_provider(value: Any) -> str:
     text = str(value or "").strip().lower()
     return text if text in _PROVIDERS else ""
 
-# ---------- 运行时设置（界面可改，优先于 .env） ----------
+# ---------- 请求级运行时配置（不落盘，用完即弃） ----------
+
+_RUNTIME_CONFIG: ContextVar[dict[str, Any] | None] = ContextVar(
+    "uidiy_llm_runtime", default=None,
+)
 
 
-def _read_settings() -> dict[str, Any]:
+@contextmanager
+def runtime_config(cfg: dict[str, Any] | None):
+    """在单个请求内临时注入 LLM 配置，退出后自动清理。"""
+    token = _RUNTIME_CONFIG.set(cfg or None)
     try:
-        return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+        yield
+    finally:
+        _RUNTIME_CONFIG.reset(token)
 
 
-def _save_settings(cfg: dict[str, Any]) -> None:
-    _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _SETTINGS_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+def _runtime() -> dict[str, Any]:
+    return _RUNTIME_CONFIG.get() or {}
 
 
 def get_settings() -> dict[str, Any]:
-    """给设置面板的当前配置（key 掩码）。"""
-    cfg = _read_settings()
-    env_key = os.getenv("API_KEY", "")
-    key = cfg.get("api_key") or env_key
+    """设置面板默认值；密钥只来自服务端环境变量，门户模式为空。"""
+    key = os.getenv("API_KEY", "")
     masked = (key[:6] + "****" + key[-4:]) if len(key) > 10 else ("已配置" if key else "")
-    base = cfg.get("base_url") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL
-    model = cfg.get("model") or _DEFAULT_MODEL
+    base = os.getenv("BASE_URL") or _DEFAULT_BASE_URL
+    model = os.getenv("MODEL") or _DEFAULT_MODEL
     return {
-        "provider": _normalize_provider(cfg.get("provider")) or _provider_key(base, model),
+        "provider": _normalize_provider(os.getenv("LLM_PROVIDER", "")) or _provider_key(base, model),
         "base_url": base,
         "model": model,
-        "reasoning_effort": _normalize_reasoning_effort(cfg.get("reasoning_effort")),
+        "reasoning_effort": _normalize_reasoning_effort(os.getenv("REASONING_EFFORT", "auto")),
         "key_masked": masked,
         "has_key": bool(key),
         "enabled": bool(key),
     }
-
-
-def save_settings(
-    base_url: str,
-    model: str,
-    api_key: str | None = None,
-    reasoning_effort: str = "auto",
-    provider: str = "",
-) -> dict[str, Any]:
-    """保存设置。api_key 为 None/空串 = 保留已存 key。"""
-    cfg = _read_settings()
-    cfg["base_url"] = (base_url or "").strip() or _DEFAULT_BASE_URL
-    cfg["model"] = (model or "").strip() or _DEFAULT_MODEL
-    cfg["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
-    cfg["provider"] = _normalize_provider(provider) or _provider_key(cfg["base_url"], cfg["model"])
-    if api_key:  # 非空才覆盖
-        cfg["api_key"] = api_key.strip()
-    _save_settings(cfg)
-    return get_settings()
 
 
 def _models_endpoint(base: str) -> str:
@@ -119,10 +103,10 @@ def _models_endpoint(base: str) -> str:
 
 
 def list_models(base_url: str | None = None, api_key: str | None = None) -> dict[str, Any]:
-    """拉取供应商可用模型列表；仅返回 id，不修改已保存设置。"""
-    cfg = _read_settings()
-    base = (base_url or "").strip() or str(cfg.get("base_url") or "") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL
-    key = (api_key or "").strip() or str(cfg.get("api_key") or "") or os.getenv("API_KEY") or ""
+    """拉取供应商可用模型列表；仅返回 id，不保存 Key。"""
+    runtime = _runtime()
+    base = str(base_url or runtime.get("base_url") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL).strip()
+    key = str(api_key or runtime.get("api_key") or os.getenv("API_KEY") or "").strip()
     endpoint = _models_endpoint(base)
     if not key:
         return {"ok": False, "models": [], "url": endpoint, "error": "未配置 API Key"}
@@ -146,10 +130,10 @@ def list_models(base_url: str | None = None, api_key: str | None = None) -> dict
 
 
 def _creds() -> tuple[str, str, str]:
-    cfg = _read_settings()
-    base = cfg.get("base_url") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL
-    key = cfg.get("api_key") or os.getenv("API_KEY") or ""
-    model = cfg.get("model") or _DEFAULT_MODEL
+    runtime = _runtime()
+    base = str(runtime.get("base_url") or os.getenv("BASE_URL") or _DEFAULT_BASE_URL).strip()
+    key = str(runtime.get("api_key") or os.getenv("API_KEY") or "").strip()
+    model = str(runtime.get("model") or os.getenv("MODEL") or _DEFAULT_MODEL).strip()
     return base, key, model
 
 
@@ -200,7 +184,7 @@ def _provider_key(base: str, model: str) -> str:
 
 
 def _current_provider_key(base: str, model: str) -> str:
-    stored = _normalize_provider(_read_settings().get("provider"))
+    stored = _normalize_provider(_runtime().get("provider") or os.getenv("LLM_PROVIDER", ""))
     return stored or _provider_key(base, model)
 
 
@@ -237,7 +221,9 @@ def _reasoning_payload(base: str, model: str, effort: str) -> dict[str, Any]:
 
 
 def _current_reasoning_payload(base: str, model: str) -> dict[str, Any]:
-    effort = _normalize_reasoning_effort(_read_settings().get("reasoning_effort"))
+    effort = _normalize_reasoning_effort(
+        _runtime().get("reasoning_effort") or os.getenv("REASONING_EFFORT", "auto")
+    )
     return _reasoning_payload(base, model, effort)
 
 

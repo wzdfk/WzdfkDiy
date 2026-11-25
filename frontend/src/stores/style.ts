@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api/style'
+import { localLlmRuntime } from '../composables/llmSettings'
 import type { ArtifactDiffItem, ChatMessage, StyleBundle, StyleTokens, TokenUsage } from '../types/style'
 
 export interface ArchiveItem {
@@ -150,7 +151,7 @@ export const useStyleStore = defineStore('style', () => {
           msg.trace = msg.trace ?? []
           msg.trace.push(ev)
         }
-      }, 'rewrite', currentAbort.signal)
+      }, 'rewrite', currentAbort.signal, localLlmRuntime())
       await refreshCss()
     } catch (err) {
       const aborted = currentAbort?.signal.aborted
@@ -222,7 +223,7 @@ export const useStyleStore = defineStore('style', () => {
           msg.trace = msg.trace ?? []
           msg.trace.push(ev)
         }
-      }, undefined, currentAbort.signal)
+      }, undefined, currentAbort.signal, localLlmRuntime())
       await refreshCss()
     } catch (err) {
       const aborted = currentAbort?.signal.aborted

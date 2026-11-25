@@ -3,6 +3,19 @@ import type { ArtifactDiffItem, ChatStreamEvent, StyleBundle, StyleTokens } from
 
 const http = axios.create({ baseURL: '/api', timeout: 300000 })  // 产物包生成输出较大，放宽到 5 分钟
 
+/** 单次请求携带的 LLM 配置，来自浏览器本地存储 */
+export interface LlmRuntime {
+  provider: LlmProvider
+  base_url: string
+  model: string
+  reasoning_effort: ReasoningEffort
+  api_key?: string
+}
+
+function withRuntime(llm?: LlmRuntime) {
+  return llm ? { llm } : {}
+}
+
 /** 当前自由产物包 */
 export const fetchCurrent = () => http.get<StyleBundle>('/style/current').then(r => r.data)
 
@@ -17,16 +30,17 @@ export const fetchPreviewCss = () =>
   }))
 
 /** 提示词 → 完整自由产物包 */
-export const parsePrompt = (prompt: string) =>
-  http.post<StyleBundle>('/style/parse', { prompt }).then(r => r.data)
+export const parsePrompt = (prompt: string, llm?: LlmRuntime) =>
+  http.post<StyleBundle>('/style/parse', { prompt, ...withRuntime(llm) }).then(r => r.data)
 
 /** 对话优化 → { bundle, diff, reply } */
 export const chat = (
   message: string,
   history: { role: string; text: string }[] = [],
+  llm?: LlmRuntime,
 ) =>
   http.post<{ bundle: StyleBundle; diff: ArtifactDiffItem[]; reply: string }>(
-    '/style/chat', { message, history },
+    '/style/chat', { message, history, ...withRuntime(llm) },
   ).then(r => r.data)
 
 /** 流式对话：解析 SSE 事件并逐条回调 */
@@ -36,11 +50,13 @@ export async function chatStream(
   onEvent: (event: ChatStreamEvent) => void,
   mode?: 'rewrite' | 'adjust',
   signal?: AbortSignal,
+  llm?: LlmRuntime,
 ) {
+  const body = { message, history, ...(mode ? { mode } : {}), ...withRuntime(llm) }
   const res = await fetch('/api/style/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(mode ? { message, history, mode } : { message, history }),
+    body: JSON.stringify(body),
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`SSE 失败: ${res.status}`)
@@ -221,27 +237,18 @@ export interface ReasoningProbeResult {
   error?: string
 }
 
-/** 读设置（key 掩码） */
+/** 读服务端默认值（门户模式无 Key） */
 export const getLlmSettings = () =>
   http.get<LlmSettings>('/settings/llm').then(r => r.data)
 
-/** 保存设置（api_key 空串 = 保留已存 key） */
-export const saveLlmSettings = (data: {
-  provider: LlmProvider
-  base_url: string
-  model: string
-  api_key?: string
-  reasoning_effort?: ReasoningEffort
-}) => http.put<LlmSettings>('/settings/llm', data).then(r => r.data)
+/** 实测当前模型支持的思考强度（配置仅用于本次请求） */
+export const probeReasoning = (llm: LlmRuntime) =>
+  http.post<ReasoningProbeResult>('/settings/llm/probe-reasoning', llm).then(r => r.data)
 
-/** 实测当前模型支持的思考强度 */
-export const probeReasoning = () =>
-  http.post<ReasoningProbeResult>('/settings/llm/probe-reasoning').then(r => r.data)
-
-/** 测试连接 → { ok, latency_ms?, sample?, error? } */
-export const testLlm = () =>
+/** 测试连接（配置仅用于本次请求） */
+export const testLlm = (llm: LlmRuntime) =>
   http.post<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>(
-    '/settings/llm/test',
+    '/settings/llm/test', llm,
   ).then(r => r.data)
 
 export interface ModelListResult {

@@ -1,5 +1,7 @@
 # UIDiy · 一句话定义你的 UI 风格
 
+项目门户：<http://uidiy.wzdfk.top>　源码仓库：<https://github.com/wzdfk/WzdfkDiy>
+
 把「UI 风格抽卡」工程化：用一句话定义风格，然后通过对话调整细节，实时预览，最后导出一套可直接交给 AI 复刻的风格产物包。
 
 风格不再是设计师脑子里的隐性知识，而是一组可导出、可复现、可交接的令牌与提示词。
@@ -109,6 +111,7 @@ frontend/
   src/preview/      预览文档处理
 docs/               产品需求、技术方案、组件清单、复刻自检报告
 images/             README 界面截图
+portal/             静态项目门户（uidiy.wzdfk.top）
 scripts/            快速验证脚本
 outputs/            本地导出的示例产物（不入库）
 fold-showcase.html  默认折角风格展示页
